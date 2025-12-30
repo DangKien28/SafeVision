@@ -16,3 +16,12 @@ export_tflite.py: script convert từ .pt sang .tflite
 requirements.txt: các thư viện cần thiết
 
 README.md: Hướng dẫn cách train và export model (ở đây chỉ làm rõ nội dung các folder và file, hướng dẫn sẽ thêm vào sau)
+
+LUỒNG HOẠT ĐỘNG: 
+Thu thập dữ liệu (raw_images)
+-> Resize & chuẩn hóa (Preprocessing, sản phẩm lưu vào processed) -> gán nhãn (cho sản phẩm ở processed) 
+-> chia tập dữ liệu (chia ra train/validation, chia ra images/labels) 
+-> cập nhật file dataset.yaml để trỏ đúng đường dẫn data
+-> training (đọc dataset.yaml, load models/pretrained, lưu kết quả vào models/trained) 
+-> chạy export_tflite.py để lưu vào models/exported
+-> tích hợp từ exported vào safe_vision_app/assets

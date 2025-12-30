@@ -1,0 +1,1 @@
+folder data bên trong data chứa predefined_classes dành cho lableImg

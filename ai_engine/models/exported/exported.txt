@@ -1,1 +1,1 @@
-Model đã convert (model_float.tflite, model_int8.tflite)
+Model đã convert để gửi nội dung qua app(model_float.tflite, model_int8.tflite)

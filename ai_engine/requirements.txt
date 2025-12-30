@@ -1,0 +1,8 @@
+ultralytics==8.0.196
+opencv-python
+pandas
+matplotlib
+pyyaml
+tensorflow  # Cần thiết cho việc export sang tflite
+onnx
+onnx2tf
