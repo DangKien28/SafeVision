@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:camera/camera.dart'; // Import thư viện mới
 import '../../../tts/data/datasources/tts_service.dart';
 
-/// Trang hiển thị Camera và xử lý tương tác đa giác quan (Thính giác - Xúc giác).
-/// Thiết kế tối ưu cho người khiếm thị với độ tương phản cao và phản hồi tức thì.
 class CameraViewPage extends StatefulWidget {
   const CameraViewPage({super.key});
 
@@ -12,89 +11,76 @@ class CameraViewPage extends StatefulWidget {
 }
 
 class _CameraViewPageState extends State<CameraViewPage> {
-  // Service quản lý giọng nói tiếng Việt
   final TtsService _ttsService = TtsService();
+  
+  // --- BIẾN KHỞI TẠO CAMERA ---
+  CameraController? _controller; 
+  List<CameraDescription>? _cameras;
+  bool _isCameraInitialized = false;
 
   @override
   void initState() {
     super.initState();
-    // Task 26: Khởi chạy hệ thống tự động ngay khi vào trang
-    _initializeSystem(); 
+    _setupCameraAndSystem(); // Gộp khởi tạo camera và TTS
   }
 
-  // --- LOGIC HỆ THỐNG ---
-
-  /// Khởi tạo TTS và phát lời chào mừng kèm rung nhẹ báo hiệu sẵn sàng.
-  Future<void> _initializeSystem() async {
+  /// Bước 2: Khởi tạo CameraController
+  Future<void> _setupCameraAndSystem() async {
     try {
+      // 1. Lấy danh sách camera có sẵn trên thiết bị
+      _cameras = await availableCameras();
+      
+      if (_cameras != null && _cameras!.isNotEmpty) {
+        // 2. Khởi tạo controller với camera sau (index 0) và độ phân giải trung bình
+        _controller = CameraController(
+          _cameras![0], 
+          ResolutionPreset.medium,
+          enableAudio: false, // Tắt audio camera để không xung đột với TTS
+        );
+
+        // 3. Lệnh quan trọng: Kích hoạt ống kính
+        await _controller!.initialize();
+        
+        if (!mounted) return;
+        setState(() {
+          _isCameraInitialized = true;
+        });
+      }
+
+      // 4. Khởi tạo TTS và chào mừng (Như Sprint 1)
       await _ttsService.initTts();
+      await Future.delayed(const Duration(seconds: 1));
+      await _ttsService.speak("Hệ thống camera đã sẵn sàng.");
+      HapticFeedback.mediumImpact();
       
-      // Delay 2 giây để đảm bảo Engine TTS đã Bound hoàn toàn trên Android
-      await Future.delayed(const Duration(seconds: 1)); 
-
-      await _ttsService.speak(
-        "Chào mừng bạn đến với Safe Vision. Hệ thống đã sẵn sàng. Chạm vào màn hình để quét."
-      );
-      
-      HapticFeedback.mediumImpact(); 
     } catch (e) {
-      debugPrint("LOG: Lỗi khởi tạo: $e");
+      debugPrint("Lỗi khởi tạo: $e");
     }
   }
 
-  // --- LOGIC PHẢN HỒI XÚC GIÁC (RUNG) ---
-
-  /// Rung 1 phát ngắn: Xác nhận đã nhận lệnh từ người dùng.
-  Future<void> _vibrateReceived() async {
-    await HapticFeedback.vibrate(); 
-  }
-
-  /// Rung 2 phát dài: Thông báo nhận diện thành công (Dùng cho Sprint 2).
-  Future<void> _vibrateSuccess() async {
-    for (int i = 0; i < 2; i++) {
-      await HapticFeedback.vibrate();
-      await Future.delayed(const Duration(milliseconds: 400)); 
-    }
-  }
-
-  /// Rung dồn dập: Cảnh báo nguy hiểm/Vật cản (Dùng cho Sprint 2).
-  Future<void> _vibrateWarning() async {
-    for (int i = 0; i < 6; i++) {
-      HapticFeedback.vibrate();
-      await Future.delayed(const Duration(milliseconds: 100)); 
-    }
-  }
-
-  // --- XỬ LÝ SỰ KIỆN ---
-
-  /// Xử lý khi người dùng chạm vào màn hình hoặc nút bấm.
   void _handleDetectionRequest() async {
-    // 1. Phản hồi rung ngắn báo nhận lệnh
-    await _vibrateReceived(); 
-    
-    // 2. Thông báo bằng giọng nói
-    await _ttsService.speak("Đang nhận diện vật thể, vui lòng đợi");
-    
-    debugPrint("Hệ thống: Lệnh nhận diện SAF-24/25 đã thực thi.");
+    await HapticFeedback.vibrate(); 
+    await _ttsService.speak("Đang nhận diện vật thể");
+    debugPrint("Lệnh nhận diện kích hoạt trên Camera thật.");
   }
 
   @override
   void dispose() {
-    _ttsService.stop(); // Giải phóng tài nguyên khi đóng trang
+    _controller?.dispose(); // Giải phóng camera khi thoát app
+    _ttsService.stop();
     super.dispose();
   }
-
-  // --- GIAO DIỆN (UI) ---
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black, // Nền đen tương phản cực cao
+      backgroundColor: Colors.black,
       body: GestureDetector(
-        onTap: _handleDetectionRequest, // Chạm bất kỳ đâu cũng kích hoạt lệnh
+        onTap: _handleDetectionRequest,
         child: Stack(
           children: [
-            _buildCameraPlaceholder(),
+            // Bước 3: Thay thế Text bằng CameraPreview
+            _buildCameraDisplay(),
             _buildDetectionButton(),
           ],
         ),
@@ -102,21 +88,18 @@ class _CameraViewPageState extends State<CameraViewPage> {
     );
   }
 
-  /// Khung hiển thị Camera (Sẽ thay thế bằng CameraController ở Sprint 2).
-  Widget _buildCameraPlaceholder() {
-    return const Center(
-      child: Text(
-        "CAMERA PREVIEW", 
-        style: TextStyle(
-          color: Colors.white, 
-          letterSpacing: 4, 
-          fontWeight: FontWeight.w300
-        )
-      )
+  Widget _buildCameraDisplay() {
+    // Nếu camera chưa load xong, hiện vòng xoay tải
+    if (!_isCameraInitialized || _controller == null) {
+      return const Center(child: CircularProgressIndicator(color: Colors.yellow));
+    }
+    
+    // Hiển thị luồng hình ảnh thật từ ống kính
+    return Center(
+      child: CameraPreview(_controller!),
     );
   }
 
-  /// Nút bấm khổng lồ màu vàng phía dưới (SAF-24).
   Widget _buildDetectionButton() {
     return Align(
       alignment: Alignment.bottomCenter,
@@ -133,10 +116,7 @@ class _CameraViewPageState extends State<CameraViewPage> {
               elevation: 10,
             ),
             onPressed: _handleDetectionRequest,
-            child: const Text(
-              'QUÉT VẬT THỂ',
-              style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)
-            ),
+            child: const Text('QUÉT VẬT THỂ', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
           ),
         ),
       ),
