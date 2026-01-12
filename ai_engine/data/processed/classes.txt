@@ -1,5 +1,0 @@
-cot_moc
-den_giao_thong
-cay
-ghe
-nguoi_di_bo
