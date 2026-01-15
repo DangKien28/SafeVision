@@ -17,7 +17,7 @@ class TtsService {
     }
   }
 
-  Future<void> speak(String text) async {
+  Future<void> speak(String? text) async {
     if (text == null || text.isEmpty) return;
 
     // Đợi 1s để hệ thống Android sẵn sàng (Fix lỗi bound chậm)
