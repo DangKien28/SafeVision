@@ -1,69 +1,91 @@
-import shutil
 import os
+import yaml
 from ultralytics import YOLO
 
-# Import file cấu hình (giả sử train_yolo.py nằm cùng cấp với config.py)
-# Nếu config.py nằm trong thư mục src, hãy đổi thành: from src import config
-import config 
+# --- Cấu hình đường dẫn Tuyệt Đối ---
+# Lấy thư mục hiện tại (src)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# Lấy thư mục gốc (ai_engine)
+base_dir = os.path.dirname(current_dir)
 
-def main():
-    # --- 1. CHUẨN BỊ MÔI TRƯỜNG ---
-    print("🛠️ Đang khởi tạo các thư mục cần thiết...")
-    config.ensure_directories()
+# Đường dẫn đến thư mục chứa data (quan trọng để sửa lỗi path)
+data_dir = os.path.join(base_dir, 'data')
 
-    # --- 2. QUẢN LÝ MODEL PRETRAINED ---
-    model_name = 'yolov8n.pt'
-    # Kết hợp đường dẫn từ config (dùng / để nối path trong pathlib)
-    pretrained_path = config.PRETRAINED_DIR / model_name 
+# Các đường dẫn file
+dataset_yaml_path = os.path.join(data_dir, 'dataset.yaml')
+pretrained_model = os.path.join(base_dir, 'models', 'pretrained', 'yolov8n.pt')
+output_dir = os.path.join(base_dir, 'models', 'trained')
 
-    print(f"🔍 Kiểm tra model pretrained tại: {pretrained_path}")
+def fix_dataset_yaml():
+    """
+    Hàm này tự động sửa file dataset.yaml để chèn đường dẫn tuyệt đối (path).
+    Giúp YOLO tìm thấy ảnh bất kể chạy từ đâu.
+    """
+    print(f"--- Đang cấu hình lại dataset.yaml ---")
+    
+    if not os.path.exists(dataset_yaml_path):
+        print(f"Lỗi: Không tìm thấy file {dataset_yaml_path}")
+        return False
 
-    if not pretrained_path.exists():
-        print(f"⬇️ Chưa thấy model, đang tải {model_name}...")
+    try:
+        # 1. Đọc nội dung hiện tại
+        with open(dataset_yaml_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+            if config is None: config = {}
+
+        # 2. Cập nhật đường dẫn tuyệt đối
+        # 'path' là từ khóa YOLO dùng để xác định thư mục gốc của dataset
+        config['path'] = data_dir 
+        config['train'] = 'train/images'
+        config['val'] = 'validation/images'
         
-        # Tải model về thư mục hiện tại (root)
-        YOLO(model_name) 
-        
-        # Đường dẫn file vừa tải về (ở thư mục gốc chạy lệnh)
-        downloaded_file = model_name 
-        
-        if os.path.exists(downloaded_file):
-            print(f"🚚 Đang di chuyển model vào {config.PRETRAINED_DIR}...")
-            # shutil.move cần tham số là string hoặc path-like object
-            shutil.move(str(downloaded_file), str(pretrained_path))
-        else:
-            print("⚠️ Không tìm thấy file tải về ở root. Có thể YOLO đã cache chỗ khác.")
-    else:
-        print("✅ Đã có sẵn model pretrained.")
+        # (Nếu file cũ chưa có names/nc, đảm bảo giữ nguyên nếu đã có, hoặc thêm mẫu nếu thiếu)
+        # Ở đây ta chỉ sửa path, giữ nguyên các cấu hình class (names) của bạn
 
-    # --- 3. KIỂM TRA FILE DATASET.YAML ---
-    if not config.YAML_PATH.exists():
-        print(f"❌ Lỗi nghiêm trọng: Không tìm thấy file {config.YAML_PATH}")
-        print("👉 Vui lòng kiểm tra lại file dataset.yaml trong thư mục data.")
+        # 3. Ghi đè lại file yaml
+        with open(dataset_yaml_path, 'w', encoding='utf-8') as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+            
+        print(f"Đã cập nhật đường dẫn tuyệt đối vào: {dataset_yaml_path}")
+        return True
+    except Exception as e:
+        print(f"Lỗi khi sửa file YAML: {e}")
+        return False
+
+def train_model():
+    # Bước 1: Sửa lỗi đường dẫn dataset trước
+    if not fix_dataset_yaml():
         return
 
-    # --- 4. HUẤN LUYỆN (TRAINING) ---
-    print("🚀 Đang load model để training...")
-    # Load model từ đường dẫn pretrained
-    model = YOLO(str(pretrained_path)) 
+    print(f"--- Bắt đầu huấn luyện ---")
+    print(f"Dataset: {dataset_yaml_path}")
+    print(f"Output: {output_dir}")
 
-    print(f"🔥 Bắt đầu training với cấu hình: {config.YAML_PATH}")
-    
-    # Bắt đầu train
-    # Lưu ý: Convert các biến Path của config sang string (str) để đảm bảo tương thích tốt nhất
-    results = model.train(
-        data=str(config.YAML_PATH),   # Đường dẫn file data.yaml
-        epochs=5,                     # Số epoch (vòng lặp)
-        imgsz=config.IMG_SIZE,        # Kích thước ảnh từ config
-        project=str(config.TRAINED_DIR), # Lưu kết quả vào folder trained
-        name='yolo_run',              # Tên folder con
-        exist_ok=True                 # Ghi đè nếu đã tồn tại
-    )
+    # Bước 2: Khởi tạo model
+    model = YOLO(pretrained_model)
 
-    print("------------------------------------------------")
-    print(f"✅ Training hoàn tất!")
-    print(f"📂 Kết quả được lưu tại: {config.TRAINED_DIR / 'yolo_run'}")
-    print("------------------------------------------------")
+    # Bước 3: Huấn luyện
+    try:
+        results = model.train(
+            data=dataset_yaml_path,
+            epochs=50,
+            imgsz=640,
+            batch=16,
+            project=output_dir,
+            name='yolo_run',
+            exist_ok=True,
+            patience=10,
+            device='cpu' # Chip thường
+        )
+
+        print("--- Huấn luyện hoàn tất ---")
+        best_weight = os.path.join(output_dir, 'yolo_run', 'weights', 'best.pt')
+        print(f"Mô hình tốt nhất: {best_weight}")
+        
+    except Exception as e:
+        print("\n--- CÓ LỖI XẢY RA KHI TRAIN ---")
+        print(e)
+        print("Gợi ý: Hãy kiểm tra xem thư mục 'ai_engine/data/train/images' có chứa ảnh không.")
 
 if __name__ == '__main__':
-    main()
+    train_model()

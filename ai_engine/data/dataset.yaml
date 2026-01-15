@@ -1,13 +1,8 @@
-path: ai_engine/data  # Đường dẫn tương đối từ root
-
+path: D:\DK_My_Code\Code_Mobile\Safe_Vision\ai_engine\data
 train: train/images
 val: validation/images
 test: test/images
-
-# Số lượng class mới là 5
 nc: 5
-
-# Tên class (Phải khớp thứ tự với classes.txt)
 names:
   0: cot_moc
   1: den_giao_thong

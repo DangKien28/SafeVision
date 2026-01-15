@@ -2,9 +2,9 @@ task: detect
 mode: train
 model: D:\DK_My_Code\Code_Mobile\Safe_Vision\ai_engine\models\pretrained\yolov8n.pt
 data: D:\DK_My_Code\Code_Mobile\Safe_Vision\ai_engine\data\dataset.yaml
-epochs: 5
+epochs: 50
 time: null
-patience: 100
+patience: 10
 batch: 16
 imgsz: 640
 save: true
@@ -29,7 +29,7 @@ amp: true
 fraction: 1.0
 profile: false
 freeze: null
-multi_scale: false
+multi_scale: 0.0
 compile: false
 overlap_mask: true
 mask_ratio: 4
@@ -82,6 +82,8 @@ cls: 0.5
 dfl: 1.5
 pose: 12.0
 kobj: 1.0
+rle: 1.0
+angle: 1.0
 nbs: 64
 hsv_h: 0.015
 hsv_s: 0.7
