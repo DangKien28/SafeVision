@@ -68,14 +68,16 @@ def train_model():
     try:
         results = model.train(
             data=dataset_yaml_path,
-            epochs=50,
+            epochs=150,        # Tăng từ 50 lên 150 hoặc 200
             imgsz=640,
-            batch=16,
+            batch=8,           # Giảm batch xuống nếu máy yếu, hoặc để 16
             project=output_dir,
-            name='yolo_run',
+            name='yolo_run_improved',
             exist_ok=True,
-            patience=10,
-            device='cpu' # Chip thường
+            patience=50,       # Kiên nhẫn hơn, đợi 50 epoch không cải thiện mới dừng
+            device='cpu',        # Dùng GPU nếu có (hoặc 'cpu')
+            lr0=0.01,          # Tốc độ học ban đầu
+            augment=True       # Bật tính năng tự tạo thêm dữ liệu biến thể
         )
 
         print("--- Huấn luyện hoàn tất ---")

@@ -17,7 +17,7 @@ def export_model():
     # 1. Xác định đường dẫn file best.pt
     # Dựa trên train_yolo.py: project=output_dir, name='yolo_run'
     # Đường dẫn sẽ là: models/trained/yolo_run/weights/best.pt
-    input_model_path = config.TRAINED_DIR / 'yolo_run' / 'weights' / 'best.pt'
+    input_model_path = config.TRAINED_DIR / 'yolo_run_improved' / 'weights' / 'best.pt'
 
     if not os.path.exists(input_model_path):
         print(f"LỖI: Không tìm thấy file trọng số tại: {input_model_path}")
