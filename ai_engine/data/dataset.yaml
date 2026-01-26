@@ -2,10 +2,6 @@ path: D:\DK_My_Code\Code_Mobile\Safe_Vision\ai_engine\data
 train: train/images
 val: validation/images
 test: test/images
-nc: 5
+nc: 1
 names:
-  0: cot_moc
-  1: den_giao_thong
-  2: cay
-  3: ghe
-  4: nguoi_di_bo
+  0: nguoi_di_bo
