@@ -1,0 +1,54 @@
+name: safe_vision_app
+description: "Dự án SafeVision - Hỗ trợ người khiếm thị nhận diện vật thể"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.8.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.0
+
+  cupertino_icons: ^1.0.8
+
+  # --- QUẢN LÝ STATE (Clean Architecture) ---
+  flutter_bloc: ^9.1.1
+  equatable: ^2.0.8
+  get_it: ^8.0.3
+
+  # --- TÍNH NĂNG CHÍNH (Sprint 1 - Xúc giác & Thính giác) ---
+  flutter_tts: ^4.2.2
+  vibration: ^2.0.1  # Thêm vào để điều khiển rung chuyên sâu cho máy Xiaomi
+
+  # --- CAMERA & AI (Sprint 2 - Nhận diện vật thể) ---
+  camera: ^0.10.5
+  image: ^4.1.3
+  tflite_flutter: ^0.10.4 # Cập nhật bản ổn định nhất cho Android 13+
+  permission_handler: ^11.3.1
+  path_provider: ^2.1.3   # Cần thiết để quản lý file model AI
+  path: ^1.9.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  # --- KHAI BÁO ASSETS ---
+  # Lưu ý: Phải có dấu / ở cuối để nhận diện cả thư mục
+  assets:
+    - assets/images/
+    - assets/icons/
+    - assets/models/
+    - assets/sounds/
+
+  # --- PHẦN FONTS (Mở ra nếu bro đã có file font trong thư mục) ---
+  # fonts:
+  #   - family: Roboto
+  #     fonts:
+  #       - asset: assets/fonts/Roboto-Regular.ttf

@@ -1,0 +1,1 @@
+Các model sau khi đã train xong (best.pt, last.pt)

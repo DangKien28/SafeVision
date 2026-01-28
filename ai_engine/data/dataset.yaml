@@ -1,0 +1,9 @@
+path: data
+
+train: train/images
+val: validation/images
+test: test/images
+
+nc: 1
+names:
+  0: nguoi_di_bo
