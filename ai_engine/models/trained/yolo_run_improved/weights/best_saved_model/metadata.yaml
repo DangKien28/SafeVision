@@ -1,0 +1,21 @@
+description: Ultralytics best model trained on D:\DK_My_Code\Code_Mobile\Safe_Vision\ai_engine\data\dataset.yaml
+author: Ultralytics
+date: '2026-01-27T01:30:33.125329'
+version: 8.4.5
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 32
+task: detect
+batch: 1
+imgsz:
+- 640
+- 640
+names:
+  0: nguoi_di_bo
+args:
+  batch: 1
+  fraction: 1.0
+  half: false
+  int8: false
+  nms: false
+channels: 3

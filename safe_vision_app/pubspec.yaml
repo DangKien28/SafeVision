@@ -1,0 +1,47 @@
+name: safe_vision_app
+description: "Dự án SafeVision - Hỗ trợ người khiếm thị nhận diện vật thể"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # --- QUẢN LÝ STATE ---
+  flutter_bloc: ^9.1.1
+  equatable: ^2.0.8
+  get_it: ^8.0.3
+
+  # --- TÍNH NĂNG CHÍNH ---
+  flutter_tts: ^4.2.2
+  vibration: ^2.0.1
+
+  # --- CAMERA & AI ---
+  camera: ^0.10.6
+  
+  # Chuyển sang bản chính thức để tránh lỗi "Git repository not found"
+  tflite_flutter: ^0.11.0
+
+  permission_handler: ^11.3.1
+  path_provider: ^2.1.3
+  path: ^1.9.0
+  image: ^4.7.2
+  shared_preferences: ^2.5.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/models/labels.txt
+    - assets/models/yolov8n_safevision.tflite
+    - assets/icons/sv_icon.png
+    - assets/images/sv_logo.png
