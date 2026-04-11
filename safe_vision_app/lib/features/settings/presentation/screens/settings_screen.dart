@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../tts/presentation/bloc/tts_bloc.dart';
+import '../../../tts/presentation/bloc/tts_event.dart';
 import '../bloc/settings_bloc.dart';
 import '../bloc/settings_event.dart';
 import '../bloc/settings_state.dart';
@@ -23,18 +25,17 @@ class SettingsScreen extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             children: [
               _SectionHeader(title: 'Giọng nói'),
-
-              // Bật/tắt giọng nói
               SwitchListTile(
                 title: const Text('Thông báo âm thanh'),
                 subtitle: const Text('Đọc cảnh báo khi phát hiện vật thể'),
                 value: state.voiceEnabled,
-                onChanged: (v) => context
-                    .read<SettingsBloc>()
-                    .add(SettingsVoiceToggled(v)),
+                onChanged: (v) {
+                  context.read<SettingsBloc>().add(SettingsVoiceToggled(v));
+                  if (!v) {
+                    context.read<TtsBloc>().add(const TtsStop());
+                  }
+                },
               ),
-
-              // Tốc độ đọc
               ListTile(
                 title: const Text('Tốc độ đọc'),
                 subtitle: Slider(
@@ -54,30 +55,16 @@ class SettingsScreen extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
-
-              // Ngôn ngữ TTS
               ListTile(
-                title: const Text('Ngôn ngữ'),
-                trailing: DropdownButton<String>(
-                  value: state.ttsLanguage,
-                  items: const [
-                    DropdownMenuItem(value: 'vi-VN', child: Text('Tiếng Việt')),
-                    DropdownMenuItem(value: 'en-US', child: Text('English')),
-                  ],
-                  onChanged: (v) {
-                    if (v != null) {
-                      context
-                          .read<SettingsBloc>()
-                          .add(SettingsTtsLanguageChanged(v));
-                    }
-                  },
-                ),
+                title: const Text('Ngôn ngữ giọng đọc'),
+                subtitle: const Text('Hệ thống chỉ sử dụng tiếng Việt'),
+                trailing: const Text('Tiếng Việt'),
+                onTap: () => context
+                    .read<SettingsBloc>()
+                    .add(const SettingsTtsLanguageChanged()), // ← no arg
               ),
-
               const Divider(height: 32),
               _SectionHeader(title: 'Phát hiện vật thể'),
-
-              // Ngưỡng confidence
               ListTile(
                 title: const Text('Ngưỡng độ tin cậy'),
                 subtitle: Slider(
@@ -96,12 +83,9 @@ class SettingsScreen extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
-
-              // Hiện panel confidence
               SwitchListTile(
                 title: const Text('Hiện bảng kết quả'),
-                subtitle:
-                    const Text('Danh sách vật thể ở góc trên màn hình'),
+                subtitle: const Text('Danh sách vật thể ở góc trên màn hình'),
                 value: state.showConfidencePanel,
                 onChanged: (v) => context
                     .read<SettingsBloc>()

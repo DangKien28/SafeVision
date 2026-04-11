@@ -6,7 +6,12 @@ class DetectionObjectFromFrame {
   final DetectionRepository _repository;
   DetectionObjectFromFrame(this._repository);
 
-  /// Chạy detection trên một CameraImage, trả về danh sách vật thể
-  Future<List<DetectionObject>> call(CameraImage image) =>
-      _repository.detectFromFrame(image);
+  Future<List<DetectionObject>> call(
+    CameraImage image, {
+    required int rotationDegrees,
+  }) =>
+      _repository.detectFromFrame(
+        image,
+        rotationDegrees: rotationDegrees,
+      );
 }

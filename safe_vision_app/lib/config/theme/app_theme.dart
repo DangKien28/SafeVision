@@ -7,14 +7,14 @@ class AppTheme {
   static ThemeData get dark => ThemeData(
         brightness: Brightness.dark,
         colorScheme: const ColorScheme.dark(
-          primary:   AppColors.primary,
+          primary: AppColors.primary,
           secondary: AppColors.accent,
-          error:     AppColors.danger,
+          error: AppColors.danger,
         ),
         scaffoldBackgroundColor: const Color(0xFF0A0A0A),
         appBarTheme: const AppBarTheme(
-          backgroundColor:  Color(0xFF0A0A0A),
-          foregroundColor:  Colors.white,
+          backgroundColor: Color(0xFF0A0A0A),
+          foregroundColor: Colors.white,
           elevation: 0,
           centerTitle: true,
           titleTextStyle: TextStyle(
@@ -31,13 +31,13 @@ class AppTheme {
           ),
           trackColor: WidgetStateProperty.resolveWith(
             (s) => s.contains(WidgetState.selected)
-                ? AppColors.accent.withOpacity(0.4)
-                : Colors.grey.withOpacity(0.3),
+                ? AppColors.accent.withValues(alpha: 0.4)
+                : Colors.grey.withValues(alpha: 0.3),
           ),
         ),
         sliderTheme: const SliderThemeData(
-          activeTrackColor:   AppColors.accent,
-          thumbColor:         AppColors.accent,
+          activeTrackColor: AppColors.accent,
+          thumbColor: AppColors.accent,
           inactiveTrackColor: Color(0xFF444444),
         ),
         useMaterial3: true,
@@ -46,9 +46,9 @@ class AppTheme {
   static ThemeData get light => ThemeData(
         brightness: Brightness.light,
         colorScheme: const ColorScheme.light(
-          primary:   AppColors.primary,
+          primary: AppColors.primary,
           secondary: AppColors.accent,
-          error:     AppColors.danger,
+          error: AppColors.danger,
         ),
         useMaterial3: true,
       );

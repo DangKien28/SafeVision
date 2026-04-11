@@ -12,13 +12,11 @@ import 'injection_container.dart' as di;
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Chỉ portrait
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
 
-  // Dependency injection
   await di.init();
 
   runApp(const SafeVisionApp());
@@ -38,16 +36,15 @@ class SafeVisionApp extends StatelessWidget {
           create: (_) => di.sl<DetectionBloc>(),
         ),
         BlocProvider<SettingsBloc>(
-          create: (_) => di.sl<SettingsBloc>()
-            ..add(const SettingsLoaded()),
+          create: (_) => di.sl<SettingsBloc>()..add(const SettingsLoaded()),
         ),
       ],
       child: MaterialApp(
         title: 'Safe Vision',
         debugShowCheckedModeBanner: false,
-        theme:      AppTheme.light,
-        darkTheme:  AppTheme.dark,
-        themeMode:  ThemeMode.dark,
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        themeMode: ThemeMode.dark,
         initialRoute: AppRoutes.camera,
         onGenerateRoute: AppRoutes.onGenerateRoute,
       ),
