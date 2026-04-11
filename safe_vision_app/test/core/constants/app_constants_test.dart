@@ -42,7 +42,25 @@ void main() {
     });
 
     test('inferenceThreads is positive', () {
-      expect(AppConstants.inferenceThreads, 2);
+      // 4 threads to span the big-core cluster on MTK big.LITTLE SoCs.
+      expect(AppConstants.inferenceThreads, 4);
+      expect(AppConstants.inferenceThreads, greaterThan(0));
+    });
+
+    test('inferenceTimeoutMs exceeds realistic CPU inference time', () {
+      // Must be greater than measured CPU inference (~2640ms on this device).
+      // Set to 4000ms for 50% headroom against thermal variance.
+      expect(AppConstants.inferenceTimeoutMs, 4000);
+      expect(AppConstants.inferenceTimeoutMs, greaterThan(2500));
+    });
+
+    test('warmupTimeoutMs is between NPU cold-init and NNAPI failure time', () {
+      // Must reject NNAPI (3363ms actual) → warmup < 3363ms ✓
+      // Must not false-trigger on NPU cold-init (~800ms) → warmup > 800ms ✓
+      expect(AppConstants.warmupTimeoutMs, 1200);
+      expect(AppConstants.warmupTimeoutMs, greaterThan(800));
+      expect(AppConstants.warmupTimeoutMs,
+          lessThan(AppConstants.inferenceTimeoutMs));
     });
 
     test('yoloOutputLogits is false', () {

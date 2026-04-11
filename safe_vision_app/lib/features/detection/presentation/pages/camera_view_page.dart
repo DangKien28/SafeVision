@@ -1,3 +1,4 @@
+
 import 'dart:async';
 
 import 'package:camera/camera.dart';
@@ -33,10 +34,6 @@ class _CameraViewPageState extends State<CameraViewPage>
   final BoxTracker _tracker = BoxTracker();
 
   bool _cameraReady = false;
-
-  /// Session counter used to invalidate callbacks from old streams.
-  /// It increments whenever the camera is reinitialized or switched, so stale
-  /// callbacks can detect the mismatch and return early.
   int _cameraSession = 0;
 
   late final ValueNotifier<({List<SmoothedBox> boxes, int version})>
@@ -70,7 +67,6 @@ class _CameraViewPageState extends State<CameraViewPage>
     switch (state) {
       case AppLifecycleState.inactive:
         break;
-
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:
       case AppLifecycleState.hidden:
@@ -79,7 +75,6 @@ class _CameraViewPageState extends State<CameraViewPage>
           unawaited(_cameraService.stopImageStream());
         }
         break;
-
       case AppLifecycleState.resumed:
         if (_phase == _LifecyclePhase.paused) {
           _phase = _LifecyclePhase.active;
@@ -97,11 +92,7 @@ class _CameraViewPageState extends State<CameraViewPage>
     if (_phase == _LifecyclePhase.disposed) return;
     try {
       await AppPermissionHandler.requestCamera();
-
-      // Increment the session before initialization so stale callbacks are
-      // ignored automatically.
       _cameraSession++;
-
       await _cameraService.initialize();
       if (!mounted || _phase == _LifecyclePhase.disposed) return;
       setState(() => _cameraReady = true);
@@ -114,15 +105,13 @@ class _CameraViewPageState extends State<CameraViewPage>
     }
   }
 
-  /// Starts a new frame stream for the current [_cameraSession].
-  /// The callback captures the session id; if it changes before the callback
-  /// runs, that frame is ignored and never dispatched to the BLoC.
   void _startStreaming() {
     if (_phase == _LifecyclePhase.disposed) return;
 
     final int session = _cameraSession;
+    // v4: callback receives CameraFrame (bytes already copied, buffer released).
     _cameraService.startImageStream(
-      onFrame: (CameraImage image, void Function() onDone) {
+      onFrame: (CameraFrame frame, void Function() onDone) {
         if (session != _cameraSession ||
             !mounted ||
             _phase == _LifecyclePhase.disposed) {
@@ -131,7 +120,7 @@ class _CameraViewPageState extends State<CameraViewPage>
         }
         context.read<DetectionBloc>().add(
               DetectionFrameReceived(
-                image,
+                frame,
                 _cameraService.rotationDegrees,
                 onDone,
               ),
@@ -145,7 +134,6 @@ class _CameraViewPageState extends State<CameraViewPage>
     if (!mounted || _phase == _LifecyclePhase.disposed) return;
 
     _cameraSession++;
-
     setState(() => _cameraReady = false);
     _tracker.clear();
     _setBoxes(const []);
@@ -249,32 +237,27 @@ class _CameraViewPageState extends State<CameraViewPage>
           color: Colors.red.withValues(alpha: 0.85),
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Text(
-          'Lỗi: $msg',
-          style: const TextStyle(color: Colors.white),
-          textAlign: TextAlign.center,
-        ),
+        child: Text('Lỗi: $msg',
+            style: const TextStyle(color: Colors.white),
+            textAlign: TextAlign.center),
       );
 
   Widget _buildControls(BuildContext ctx) => Column(
         children: [
           _IconBtn(
-            icon: Icons.flip_camera_ios,
-            tooltip: 'Chuyển camera',
-            onTap: _switchCamera,
-          ),
+              icon: Icons.flip_camera_ios,
+              tooltip: 'Chuyển camera',
+              onTap: _switchCamera),
           const SizedBox(height: 8),
           _IconBtn(
-            icon: Icons.volume_up,
-            tooltip: 'Tắt tiếng',
-            onTap: () => ctx.read<TtsBloc>().add(const TtsStop()),
-          ),
+              icon: Icons.volume_up,
+              tooltip: 'Tắt tiếng',
+              onTap: () => ctx.read<TtsBloc>().add(const TtsStop())),
           const SizedBox(height: 8),
           _IconBtn(
-            icon: Icons.settings,
-            tooltip: 'Cài đặt',
-            onTap: () => Navigator.pushNamed(ctx, '/settings'),
-          ),
+              icon: Icons.settings,
+              tooltip: 'Cài đặt',
+              onTap: () => Navigator.pushNamed(ctx, '/settings')),
         ],
       );
 
@@ -311,8 +294,7 @@ class _DetectionOverlay extends StatelessWidget {
       fit: StackFit.expand,
       children: [
         RepaintBoundary(
-          child:
-              ValueListenableBuilder<({List<SmoothedBox> boxes, int version})>(
+          child: ValueListenableBuilder<({List<SmoothedBox> boxes, int version})>(
             valueListenable: boxNotifier,
             builder: (_, data, __) => IgnorePointer(
               child: CustomPaint(
@@ -379,15 +361,13 @@ class _DetectionOverlay extends StatelessWidget {
 class _CameraLayer extends StatelessWidget {
   final CameraService service;
   final bool cameraReady;
-
   const _CameraLayer({required this.service, required this.cameraReady});
 
   @override
   Widget build(BuildContext context) {
     final ctrl = service.controller;
     if (!cameraReady || ctrl == null || !ctrl.value.isInitialized) {
-      return const Center(
-          child: CircularProgressIndicator(color: Colors.white));
+      return const Center(child: CircularProgressIndicator(color: Colors.white));
     }
     if (service.isFrontCamera) {
       return Transform(
@@ -404,12 +384,8 @@ class _IconBtn extends StatelessWidget {
   final IconData icon;
   final String tooltip;
   final VoidCallback onTap;
-
-  const _IconBtn({
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-  });
+  const _IconBtn(
+      {required this.icon, required this.tooltip, required this.onTap});
 
   @override
   Widget build(BuildContext context) => GestureDetector(

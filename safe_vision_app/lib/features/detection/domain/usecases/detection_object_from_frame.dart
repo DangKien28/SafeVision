@@ -1,4 +1,6 @@
-import 'package:camera/camera.dart';
+
+
+import '../../../../core/services/camera_service.dart' show CameraFrame;
 import '../entities/detection_object.dart';
 import '../repositories/detection_repository.dart';
 
@@ -7,11 +9,8 @@ class DetectionObjectFromFrame {
   DetectionObjectFromFrame(this._repository);
 
   Future<List<DetectionObject>> call(
-    CameraImage image, {
+    CameraFrame frame, {
     required int rotationDegrees,
   }) =>
-      _repository.detectFromFrame(
-        image,
-        rotationDegrees: rotationDegrees,
-      );
+      _repository.detectFromFrame(frame, rotationDegrees: rotationDegrees);
 }

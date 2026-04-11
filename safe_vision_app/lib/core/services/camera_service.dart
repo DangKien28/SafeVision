@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -132,7 +133,7 @@ class CameraService {
   /// The second parameter, [onDone], must be called after inference completes
   /// so the next frame can proceed.
   void startImageStream({
-    required void Function(CameraImage, void Function()) onFrame,
+    required void Function(CameraFrame, void Function()) onFrame,
   }) {
     if (_controller == null || !isInitialized || _isDisposing) {
       debugPrint('[CameraService] startImageStream: not ready, skip');
@@ -184,7 +185,17 @@ class CameraService {
       _isProcessingFrame = true;
       _lastFrameTime = now;
 
-      onFrame(image, () {
+      // Copy bytes immediately so the HAL can recycle the AHardwareBuffer slot.
+      // This prevents the BLASTBufferQueue from running out of buffers during inference.
+      final frame = CameraFrame(
+        width: image.width,
+        height: image.height,
+        planes: image.planes.map((p) => Uint8List.fromList(p.bytes)).toList(),
+        rowStrides: image.planes.map((p) => p.bytesPerRow).toList(),
+        pixelStrides: image.planes.map((p) => p.bytesPerPixel ?? 1).toList(),
+      );
+
+      onFrame(frame, () {
         // onDone releases the processing lock and should be called by the
         // caller after inference finishes, including from a finally block.
         _isProcessingFrame = false;
@@ -256,4 +267,26 @@ class CameraService {
       completer.complete();
     }
   }
+}
+
+/// A decoupled copy of a camera frame's YUV plane bytes.
+///
+/// Creating this copy immediately allows the [CameraImage] to be garbage
+/// collected and its underlying AHardwareBuffer slot returned to the camera
+/// HAL. This prevents buffer starvation and BLASTBufferQueue errors during
+/// long inferences.
+class CameraFrame {
+  final int width;
+  final int height;
+  final List<Uint8List> planes;
+  final List<int> rowStrides;
+  final List<int> pixelStrides;
+
+  const CameraFrame({
+    required this.width,
+    required this.height,
+    required this.planes,
+    required this.rowStrides,
+    required this.pixelStrides,
+  });
 }

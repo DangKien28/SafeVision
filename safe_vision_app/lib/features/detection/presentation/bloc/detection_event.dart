@@ -1,5 +1,7 @@
+
+
 import 'package:equatable/equatable.dart';
-import 'package:camera/camera.dart';
+import '../../../../core/services/camera_service.dart' show CameraFrame;
 
 abstract class DetectionEvent extends Equatable {
   const DetectionEvent();
@@ -16,12 +18,12 @@ class DetectionStopped extends DetectionEvent {
 }
 
 class DetectionFrameReceived extends DetectionEvent {
-  final CameraImage image;
+  final CameraFrame frame;
   final int rotationDegrees;
   final void Function() onDone;
 
-  const DetectionFrameReceived(this.image, this.rotationDegrees, this.onDone);
+  const DetectionFrameReceived(this.frame, this.rotationDegrees, this.onDone);
 
   @override
-  List<Object?> get props => [image, rotationDegrees];
+  List<Object?> get props => [frame, rotationDegrees];
 }

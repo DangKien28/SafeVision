@@ -1,11 +1,12 @@
-import 'package:camera/camera.dart';
+// lib/features/detection/data/repositories/detection_repository_impl.dart
+
+import '../../../../core/services/camera_service.dart' show CameraFrame;
 import '../../domain/entities/detection_object.dart';
 import '../../domain/repositories/detection_repository.dart';
 import '../datasources/detection_local_datasource.dart';
 
 class DetectionRepositoryImpl implements DetectionRepository {
   final DetectionLocalDatasource _datasource;
-
   DetectionRepositoryImpl(this._datasource);
 
   @override
@@ -13,11 +14,11 @@ class DetectionRepositoryImpl implements DetectionRepository {
 
   @override
   Future<List<DetectionObject>> detectFromFrame(
-    CameraImage image, {
+    CameraFrame frame, {
     required int rotationDegrees,
   }) async {
     final rawList = await _datasource.runInference(
-      image,
+      frame,
       rotationDegrees: rotationDegrees,
     );
     return rawList
