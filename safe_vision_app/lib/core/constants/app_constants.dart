@@ -1,5 +1,3 @@
-// lib/core/constants/app_constants.dart
-
 class AppConstants {
   AppConstants._();
 
@@ -14,7 +12,7 @@ class AppConstants {
   static const int activeInferenceFps = 6;
   static const int inferenceThreads = 4;
 
-  static const int inferenceTimeoutMs = 4000;
+  static const int inferenceTimeoutMs = 5000;
 
   static const int warmupTimeoutMs = 1200;
 
@@ -31,4 +29,6 @@ class AppConstants {
   static const double ttsPitch = 1.00;
   static const double ttsVolume = 1.00;
   static const String ttsLanguage = 'vi-VN';
+
+  static const int latestFrameMaxAgeMs = 4000;
 }

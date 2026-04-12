@@ -1,12 +1,3 @@
-// lib/features/detection/data/datasources/detection_local_datasource_impl.dart
-//
-// PRODUCTION-READY v4
-// ====================
-// v4 changes vs v3:
-//   1. inferenceTimeoutMs: 2500 → 5000ms  (CPU runs at ~2640ms — was timing out)
-//   2. runInference takes CameraFrame instead of CameraImage (buffer released early)
-//   3. XNNPack delegate attempted before plain CPU (NEON SIMD, 1.5–2.5× faster)
-
 import 'dart:isolate';
 import 'dart:math';
 import 'dart:io';
@@ -42,6 +33,11 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
   int _consecutiveTimeouts = 0;
   bool _isolateBusy = false;
 
+  /// Tracks the duration of the most recent successful inference for
+  /// performance monitoring. Zero until the first successful inference.
+  int _lastInferenceMs = 0;
+  int get lastInferenceMs => _lastInferenceMs;
+
   @override
   Future<void> loadModel() async {
     if (_modelLoaded) {
@@ -63,7 +59,7 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
 
       if (kDebugMode) {
         debugPrint('[DS] Model loaded — '
-            'delegate=${_allowNnapi ? "NNAPI→CPU" : "CPU-only"} '
+            'delegate=${_allowNnapi ? "NNAPI→XNNPack→CPU" : "XNNPack→CPU"} '
             'threads=${AppConstants.inferenceThreads}');
         debugPrint('[DS]   output=$_outputShape  labels=${_labels.length}');
       }
@@ -102,7 +98,7 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
       final passed = await _runWarmupProbe();
       if (!passed) {
         debugPrint('[DS] WARMUP PROBE FAILED: NNAPI exceeded '
-            '${AppConstants.warmupTimeoutMs}ms — switching to CPU.');
+            '${AppConstants.warmupTimeoutMs}ms — switching to XNNPack/CPU.');
         _allowNnapi = false;
         await _killIsolateOnly();
         await _spawnIsolate(modelBytes);
@@ -110,7 +106,10 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
         if (kDebugMode) debugPrint('[DS] WARMUP PROBE PASSED: NNAPI ok');
       }
     } else {
-      if (kDebugMode) debugPrint('[DS] Warmup probe skipped (CPU-only mode)');
+      if (kDebugMode) {
+        debugPrint('[DS] Warmup probe skipped '
+            '(${Platform.isAndroid ? "CPU-only mode" : "non-Android"})');
+      }
     }
   }
 
@@ -161,7 +160,8 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
   Future<void> _killAndRespawnIsolate() async {
     if (kDebugMode) {
       debugPrint('[DS] Respawning isolate '
-          '(allowNnapi=$_allowNnapi, timeouts=$_consecutiveTimeouts)...');
+          '(allowNnapi=$_allowNnapi, '
+          'consecutiveTimeouts=$_consecutiveTimeouts)...');
     }
     await _killIsolateOnly();
     try {
@@ -173,7 +173,7 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
       _consecutiveTimeouts = 0;
       if (kDebugMode) {
         debugPrint('[DS] Isolate respawned — '
-            'delegate: ${_allowNnapi ? "NNAPI" : "CPU-only"}');
+            'delegate: ${_allowNnapi ? "NNAPI" : "XNNPack/CPU"}');
       }
     } catch (e) {
       debugPrint('[DS] Respawn FAILED: $e');
@@ -191,6 +191,8 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
     _isolateBusy = true;
 
     ReceivePort? replyPort;
+    final sw = Stopwatch()..start();
+
     try {
       final planeBytes = <TransferableTypedData>[
         for (final p in frame.planes) TransferableTypedData.fromList([p]),
@@ -210,13 +212,16 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
         maxDetections: _config.maxDetections,
       ));
 
-      // v4: 5000ms — above the measured 2640ms CPU inference time.
+      // FIX RC-1: Use AppConstants.inferenceTimeoutMs (now 5000ms).
+      // The old hardcoded 4000ms caused false timeouts at 2640ms inference
+      // + GC jitter, triggering unnecessary isolate respawns.
       final dynamic result = await replyPort.first.timeout(
         Duration(milliseconds: AppConstants.inferenceTimeoutMs),
         onTimeout: () {
           if (kDebugMode) {
-            debugPrint(
-                '[DS] inference timeout after ${AppConstants.inferenceTimeoutMs}ms');
+            debugPrint('[DS] inference timeout after '
+                '${AppConstants.inferenceTimeoutMs}ms '
+                '(elapsed: ${sw.elapsedMilliseconds}ms)');
           }
           return 'TIMEOUT';
         },
@@ -228,18 +233,21 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
           if (_consecutiveTimeouts >= _maxConsecutiveTimeouts) {
             if (_allowNnapi) {
               debugPrint('[DS] $_maxConsecutiveTimeouts timeouts on NNAPI — '
-                  'switching to CPU.');
+                  'switching to XNNPack/CPU.');
               _allowNnapi = false;
             } else {
-              debugPrint('[DS] $_maxConsecutiveTimeouts timeouts on CPU — '
-                  'model may exceed device capability at '
-                  '${AppConstants.inputSize}×${AppConstants.inputSize}.');
+              debugPrint(
+                  '[DS] $_maxConsecutiveTimeouts timeouts on XNNPack/CPU — '
+                  'device may be thermally throttled '
+                  '(${AppConstants.inputSize}×${AppConstants.inputSize} input).');
             }
             await _killAndRespawnIsolate();
           } else {
-            debugPrint('[DS] timeout #$_consecutiveTimeouts -> skipping frame');
+            debugPrint('[DS] timeout #$_consecutiveTimeouts — skipping frame');
           }
         } else {
+          // 'ERROR:...' string from isolate
+          debugPrint('[DS] isolate error: $result');
           if (_allowNnapi) _allowNnapi = false;
           await _killAndRespawnIsolate();
           _consecutiveTimeouts = 0;
@@ -247,10 +255,18 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
         return [];
       }
 
+      sw.stop();
+      _lastInferenceMs = sw.elapsedMilliseconds;
       _consecutiveTimeouts = 0;
+
+      if (kDebugMode && _lastInferenceMs > 1000) {
+        debugPrint('[DS] slow inference: ${_lastInferenceMs}ms '
+            '(delegate: ${_allowNnapi ? "NNAPI" : "XNNPack/CPU"})');
+      }
+
       return List<Map<String, dynamic>>.from(result as List);
     } catch (e) {
-      debugPrint('[DS] exception: $e');
+      debugPrint('[DS] runInference exception: $e');
       return [];
     } finally {
       replyPort?.close();
@@ -267,6 +283,7 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
     _isolateBusy = false;
     _modelLoaded = false;
     _consecutiveTimeouts = 0;
+    _lastInferenceMs = 0;
 
     if (sp != null) {
       try {
@@ -286,7 +303,7 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Isolate globals
+// Isolate globals (top-level to avoid SendPort serialisation)
 // ─────────────────────────────────────────────────────────────────────────────
 
 Interpreter? _cachedInterpreter;
@@ -364,11 +381,12 @@ void _handleWarmupProbe(_WarmupProbeMsg msg) {
   }
 }
 
-/// Delegate priority:
-///   Android (allowNnapi=true):  NNAPI → XNNPack → CPU
-///   Android (allowNnapi=false): XNNPack → CPU
-///   iOS:                        Metal → CPU
+/// Delegate priority order:
+///   Android (allowNnapi=true):   NNAPI → XNNPack → CPU (explicit threads)
+///   Android (allowNnapi=false):  XNNPack → CPU (explicit threads)
+///   iOS:                         Metal → XNNPack → CPU
 Interpreter _createInterpreter(Uint8List modelBytes) {
+  // ── NNAPI (Android only, when enabled) ────────────────────────────────────
   if (Platform.isAndroid && _isolateAllowNnapi && !_nnApiFailed) {
     try {
       final opts = InterpreterOptions()..useNnApiForAndroid = true;
@@ -376,15 +394,12 @@ Interpreter _createInterpreter(Uint8List modelBytes) {
       debugPrint('[Isolate] Delegate: NNAPI');
       return interp;
     } catch (e) {
-      debugPrint('[Isolate] NNAPI failed: $e — trying XNNPack');
+      debugPrint('[Isolate] NNAPI unavailable: $e → trying XNNPack');
       _nnApiFailed = true;
     }
   }
 
-  if (!_isolateAllowNnapi && Platform.isAndroid) {
-    debugPrint('[Isolate] NNAPI disabled — trying XNNPack');
-  }
-
+  // ── Metal (iOS) ───────────────────────────────────────────────────────────
   if (Platform.isIOS) {
     try {
       final opts = InterpreterOptions()..useMetalDelegateForIOS = true;
@@ -392,11 +407,11 @@ Interpreter _createInterpreter(Uint8List modelBytes) {
       debugPrint('[Isolate] Delegate: Metal');
       return interp;
     } catch (e) {
-      debugPrint('[Isolate] Metal failed: $e — trying XNNPack/CPU');
+      debugPrint('[Isolate] Metal unavailable: $e → trying XNNPack');
     }
   }
 
-  // v4: XNNPack before plain CPU.
+  // ── XNNPack (cross-platform NEON/SIMD, 1.5–2.5× faster than plain CPU) ───
   if (Platform.isAndroid || Platform.isIOS) {
     try {
       final delegate = XNNPackDelegate(
@@ -405,17 +420,19 @@ Interpreter _createInterpreter(Uint8List modelBytes) {
       );
       final opts = InterpreterOptions()..addDelegate(delegate);
       final interp = Interpreter.fromBuffer(modelBytes, options: opts);
-      debugPrint(
-          '[Isolate] Delegate: XNNPack (${AppConstants.inferenceThreads} threads)');
+      debugPrint('[Isolate] Delegate: XNNPack '
+          '(${AppConstants.inferenceThreads} threads)');
       return interp;
     } catch (e) {
-      debugPrint('[Isolate] XNNPack unavailable: $e — using plain CPU');
+      debugPrint('[Isolate] XNNPack unavailable: $e → CPU fallback');
     }
   }
 
+  // ── Plain CPU with explicit thread count ──────────────────────────────────
+  // FIX: always set thread count even on the fallback path.
   final opts = InterpreterOptions()..threads = AppConstants.inferenceThreads;
-  debugPrint(
-      '[Isolate] Delegate: CPU (${AppConstants.inferenceThreads} threads)');
+  debugPrint('[Isolate] Delegate: CPU '
+      '(${AppConstants.inferenceThreads} threads)');
   return Interpreter.fromBuffer(modelBytes, options: opts);
 }
 
@@ -474,7 +491,10 @@ void _ensureOutputFlat() {
     throw StateError('[Isolate] Output shape invalid: $_initOutputShape');
   }
   final needed = _initOutputShape[1] * _initOutputShape[2];
-  if (needed <= 0) throw StateError('[Isolate] Output needed=$needed');
+  if (needed <= 0) {
+    throw StateError('[Isolate] Output shape gives needed=$needed — '
+        'model output shape is malformed: $_initOutputShape');
+  }
   if (_cachedOutputBytes == null || _cachedOutputLen != needed) {
     _cachedOutputBytes = Uint8List(needed * Float32List.bytesPerElement);
     _cachedOutputFloats = _cachedOutputBytes!.buffer.asFloat32List();
@@ -612,6 +632,8 @@ class _RawBox {
     required this.classId,
   });
 }
+
+// ── Message classes (all must be const-constructable for isolate safety) ────
 
 class _IsolateInitMsg {
   final List<String> labels;

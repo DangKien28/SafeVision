@@ -43,6 +43,11 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
         super(const DetectionInitial()) {
     on<DetectionStarted>(_onStarted);
     on<DetectionStopped>(_onStopped);
+    // droppable() is correct here: with the latest-frame strategy,
+    // CameraService only dispatches one frame at a time. droppable() acts as
+    // a safety net for any edge case where two events arrive simultaneously.
+    // The Future.microtask in _handleInferenceDone ensures the next event
+    // arrives AFTER this handler is done, so it is never falsely dropped.
     on<DetectionFrameReceived>(_onFrameReceived, transformer: droppable());
   }
 
@@ -92,13 +97,16 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
     DetectionFrameReceived event,
     Emitter<DetectionState> emit,
   ) async {
+    // Skip frames that arrive before the model is ready.
     if (state is DetectionInitial ||
         state is DetectionLoading ||
         state is DetectionFailure) {
       if (kDebugMode) {
         debugPrint('[DetectionBloc] frame skipped — model not ready '
-            '(state: ${state.runtimeType})');
+            '(${state.runtimeType})');
       }
+      // MUST call onDone() to release CameraService._isProcessingFrame.
+      // Without this, the camera stream locks up permanently.
       event.onDone();
       return;
     }
@@ -114,9 +122,9 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
       if (kDebugMode) {
         sw?.stop();
         PerfMonitor.inferenceCompleted(sw?.elapsedMilliseconds ?? 0);
-        PerfMonitor.frameReceived();
         if (detections.isNotEmpty) {
-          debugPrint('[DetectionBloc] detections=${detections.length}');
+          debugPrint('[DetectionBloc] detections=${detections.length} '
+              'in ${sw?.elapsedMilliseconds}ms');
         }
       }
 
@@ -129,6 +137,11 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
     } catch (e) {
       debugPrint('[DetectionBloc] _onFrameReceived error: $e');
     } finally {
+      // INVARIANT: onDone() MUST be called even on exception.
+      // CameraService._handleInferenceDone() will then schedule the next
+      // pending frame via Future.microtask(). The microtask runs after
+      // this finally block returns, ensuring droppable() sees this event
+      // as complete before the next one is added.
       event.onDone();
     }
   }
@@ -180,14 +193,18 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
 
     if (dangerous.isNotEmpty) {
       _onWarning(
-          text: dangerous.first.voiceWarning,
-          immediate: true,
-          withVibration: true);
+        text: dangerous.first.voiceWarning,
+        immediate: true,
+        withVibration: true,
+      );
     } else {
       final top =
           candidates.reduce((a, b) => a.confidence > b.confidence ? a : b);
       _onWarning(
-          text: top.voiceWarning, immediate: false, withVibration: false);
+        text: top.voiceWarning,
+        immediate: false,
+        withVibration: false,
+      );
     }
   }
 
