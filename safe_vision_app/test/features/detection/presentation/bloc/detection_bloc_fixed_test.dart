@@ -1,8 +1,14 @@
+// test/features/detection/presentation/bloc/detection_bloc_fixed_test.dart
+// v4: CameraImage → CameraFrame throughout.
+
+import 'dart:typed_data';
+
 import 'package:bloc_test/bloc_test.dart';
-import 'package:camera/camera.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:safe_vision_app/core/services/camera_service.dart'
+    show CameraFrame;
 import 'package:safe_vision_app/features/detection/domain/entities/detection_object.dart';
 import 'package:safe_vision_app/features/detection/domain/usecases/detection_object_from_frame.dart';
 import 'package:safe_vision_app/features/detection/domain/usecases/load_model_usecase.dart';
@@ -18,7 +24,13 @@ class MockCloseModelUsecase extends Mock implements CloseModelUsecase {}
 
 class MockDetectFromFrame extends Mock implements DetectionObjectFromFrame {}
 
-class MockCameraImage extends Mock implements CameraImage {}
+CameraFrame fakeCameraFrame() => CameraFrame(
+      planes: [Uint8List(0), Uint8List(0), Uint8List(0)],
+      rowStrides: [640, 320, 320],
+      pixelStrides: [1, 2, 2],
+      width: 640,
+      height: 480,
+    );
 
 DetectionObject _safeObject(
         {String label = 'person', double confidence = 0.8}) =>
@@ -50,10 +62,9 @@ void main() {
   late MockLoadModelUsecase mockLoadModel;
   late MockCloseModelUsecase mockCloseModel;
   late MockDetectFromFrame mockDetectFromFrame;
-  late MockCameraImage mockCameraImage;
 
   setUpAll(() {
-    registerFallbackValue(MockCameraImage());
+    registerFallbackValue(fakeCameraFrame());
     registerFallbackValue(const NoParams());
   });
 
@@ -61,7 +72,6 @@ void main() {
     mockLoadModel = MockLoadModelUsecase();
     mockCloseModel = MockCloseModelUsecase();
     mockDetectFromFrame = MockDetectFromFrame();
-    mockCameraImage = MockCameraImage();
 
     when(() => mockCloseModel.call(any())).thenAnswer((_) async {});
     when(() => mockLoadModel.call(any())).thenAnswer((_) async {});
@@ -76,15 +86,11 @@ void main() {
             ({required text, required immediate, required withVibration}) {},
       );
 
-  // Initial state
-
   test('state ban đầu là DetectionInitial', () {
     final bloc = buildBloc();
     expect(bloc.state, const DetectionInitial());
     bloc.close();
   });
-
-  // DetectionStarted
 
   group('DetectionStarted', () {
     blocTest<DetectionBloc, DetectionState>(
@@ -123,8 +129,6 @@ void main() {
     );
   });
 
-  // DetectionStopped uses CloseModelUsecase
-
   group('DetectionStopped', () {
     blocTest<DetectionBloc, DetectionState>(
       'phát ra Initial và gọi closeModel',
@@ -144,8 +148,6 @@ void main() {
     );
   });
 
-  // Concurrent frames and droppable behavior
-
   group('DetectionFrameReceived — hành vi xử lý frame', () {
     blocTest<DetectionBloc, DetectionState>(
       'nhiều frame đến cùng lúc: chỉ một frame được xử lý tại một thời điểm',
@@ -160,9 +162,9 @@ void main() {
       },
       seed: () => const DetectionModelReady(),
       act: (bloc) async {
-        bloc.add(DetectionFrameReceived(mockCameraImage, 90, () {}));
-        bloc.add(DetectionFrameReceived(mockCameraImage, 90, () {}));
-        bloc.add(DetectionFrameReceived(mockCameraImage, 90, () {}));
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
         await Future.delayed(const Duration(milliseconds: 100));
       },
       expect: () => [isA<DetectionSuccess>()],
@@ -182,9 +184,9 @@ void main() {
       },
       seed: () => const DetectionModelReady(),
       act: (bloc) async {
-        bloc.add(DetectionFrameReceived(mockCameraImage, 90, () {}));
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
         await Future.delayed(const Duration(milliseconds: 30));
-        bloc.add(DetectionFrameReceived(mockCameraImage, 90, () {}));
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
         await Future.delayed(const Duration(milliseconds: 30));
       },
       verify: (_) {
@@ -194,8 +196,6 @@ void main() {
       },
     );
   });
-
-  // Warning callback
 
   group('Callback cảnh báo', () {
     String? capturedText;
@@ -225,7 +225,7 @@ void main() {
       },
       seed: () => const DetectionModelReady(),
       act: (bloc) =>
-          bloc.add(DetectionFrameReceived(mockCameraImage, 90, () {})),
+          bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {})),
       expect: () => [isA<DetectionSuccess>()],
       verify: (_) {
         expect(capturedImmediate, isTrue);
@@ -251,7 +251,7 @@ void main() {
       },
       seed: () => const DetectionModelReady(),
       act: (bloc) =>
-          bloc.add(DetectionFrameReceived(mockCameraImage, 90, () {})),
+          bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {})),
       expect: () => [isA<DetectionSuccess>()],
       verify: (_) {
         expect(capturedImmediate, isFalse);
@@ -274,7 +274,7 @@ void main() {
       },
       seed: () => const DetectionModelReady(),
       act: (bloc) =>
-          bloc.add(DetectionFrameReceived(mockCameraImage, 90, () {})),
+          bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {})),
       expect: () => [
         predicate<DetectionState>(
             (s) => s is DetectionSuccess && s.detections.isEmpty),
@@ -286,8 +286,6 @@ void main() {
       },
     );
   });
-
-  // onDone callback
 
   group('Callback onDone', () {
     test('is called after successful inference', () async {
@@ -301,7 +299,7 @@ void main() {
 
       bool doneCalled = false;
       bloc.add(DetectionFrameReceived(
-        mockCameraImage,
+        fakeCameraFrame(),
         0,
         () => doneCalled = true,
       ));
@@ -313,15 +311,11 @@ void main() {
     });
   });
 
-  // CloseModelUsecase contract
-
   group('CloseModelUsecase', () {
     test('call(NoParams()) chuyển tiếp sang repository.closeModel()', () async {
       final mock = MockCloseModelUsecase();
       when(() => mock.call(any())).thenAnswer((_) async {});
-
       await mock.call(const NoParams());
-
       verify(() => mock.call(any())).called(1);
     });
   });

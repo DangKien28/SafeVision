@@ -1,20 +1,37 @@
-import 'package:camera/camera.dart';
+// test/features/detection/data/repositories/detection_repository_impl_test.dart
+// v4: FakeCameraImage → FakeCameraFrame.
+// DetectionLocalDatasource.runInference now takes CameraFrame.
+
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+
+import 'package:safe_vision_app/core/services/camera_service.dart'
+    show CameraFrame;
 import 'package:safe_vision_app/features/detection/data/datasources/detection_local_datasource.dart';
 import 'package:safe_vision_app/features/detection/data/repositories/detection_repository_impl.dart';
 
 class MockDetectionLocalDatasource extends Mock
     implements DetectionLocalDatasource {}
 
-class FakeCameraImage extends Fake implements CameraImage {}
+// FakeCameraFrame: minimal valid CameraFrame with no AHardwareBuffer.
+class FakeCameraFrame extends Fake implements CameraFrame {}
+
+CameraFrame makeFakeFrame() => CameraFrame(
+      planes: [Uint8List(0), Uint8List(0), Uint8List(0)],
+      rowStrides: [640, 320, 320],
+      pixelStrides: [1, 2, 2],
+      width: 640,
+      height: 480,
+    );
 
 void main() {
   late MockDetectionLocalDatasource mockDatasource;
   late DetectionRepositoryImpl repository;
 
   setUpAll(() {
-    registerFallbackValue(FakeCameraImage());
+    registerFallbackValue(FakeCameraFrame());
   });
 
   setUp(() {
@@ -65,7 +82,7 @@ void main() {
           )).thenAnswer((_) async => rawResults);
 
       final result = await repository.detectFromFrame(
-        FakeCameraImage(),
+        makeFakeFrame(),
         rotationDegrees: 90,
       );
 
@@ -87,7 +104,7 @@ void main() {
           )).thenAnswer((_) async => []);
 
       final result = await repository.detectFromFrame(
-        FakeCameraImage(),
+        makeFakeFrame(),
         rotationDegrees: 0,
       );
 

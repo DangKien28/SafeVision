@@ -1,5 +1,3 @@
-
-
 import '../../../../core/services/camera_service.dart' show CameraFrame;
 
 abstract class DetectionLocalDatasource {

@@ -1,27 +1,29 @@
+// test/features/detection/presentation/bloc/datasource_isolate_busy_test.dart
+// v4: TrackingDatasource.runInference signature changed from CameraImage → CameraFrame.
+// All test call sites updated accordingly.
+
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
-import 'package:camera/camera.dart';
 
+import 'package:safe_vision_app/core/services/camera_service.dart'
+    show CameraFrame;
 import 'package:safe_vision_app/features/detection/data/datasources/detection_local_datasource.dart';
-
-// Test strategy
-//
-// DetectionLocalDatasourceImpl depends on the native TFLite interpreter.
-// In a unit-test environment there is no native engine, so the isolate
-// cannot be spawned. Because of that, `_isolateBusy` is verified through
-// TrackingDatasource, a test double that mirrors the same finally-block logic.
-//
-// A device integration test is still required for full validation of
-// GPU delegates, isolate spawning, and model loading.
-// ─────────────────────────────────────────────────────────────────────────
 
 class MockDetectionDatasource extends Mock
     implements DetectionLocalDatasource {}
 
-class MockCameraImage extends Mock implements CameraImage {}
+CameraFrame fakeCameraFrame() => CameraFrame(
+      planes: [Uint8List(0), Uint8List(0), Uint8List(0)],
+      rowStrides: [640, 320, 320],
+      pixelStrides: [1, 2, 2],
+      width: 640,
+      height: 480,
+    );
 
 /// Test double that mirrors the finally-block pattern from the real
-/// implementation. It verifies that `_isolateBusy` is always reset,
+/// implementation. Verifies that `_isolateBusy` is always reset,
 /// including when inference throws.
 class TrackingDatasource implements DetectionLocalDatasource {
   bool _modelLoaded = false;
@@ -38,9 +40,10 @@ class TrackingDatasource implements DetectionLocalDatasource {
     _modelLoaded = true;
   }
 
+  // v4: accepts CameraFrame instead of CameraImage.
   @override
   Future<List<Map<String, dynamic>>> runInference(
-    CameraImage image, {
+    CameraFrame frame, {
     required int rotationDegrees,
   }) async {
     if (!_modelLoaded) return [];
@@ -57,8 +60,6 @@ class TrackingDatasource implements DetectionLocalDatasource {
     } catch (e) {
       rethrow;
     } finally {
-      // The finally block guarantees that `_isolateBusy` is reset on both
-      // success and exception paths.
       _isolateBusy = false;
     }
   }
@@ -72,14 +73,10 @@ class TrackingDatasource implements DetectionLocalDatasource {
 
 void main() {
   late TrackingDatasource datasource;
-  late MockCameraImage mockImage;
 
   setUp(() {
     datasource = TrackingDatasource();
-    mockImage = MockCameraImage();
   });
-
-  // _isolateBusy is always reset after runInference
 
   group('_isolateBusy is reset in finally block', () {
     setUp(() async {
@@ -102,7 +99,7 @@ void main() {
             }
           ];
 
-      await datasource.runInference(mockImage, rotationDegrees: 0);
+      await datasource.runInference(fakeCameraFrame(), rotationDegrees: 0);
 
       expect(datasource.isolateBusy, isFalse,
           reason: 'isolateBusy must return to false after success');
@@ -113,7 +110,7 @@ void main() {
       datasource.exceptionToThrow = Exception('GPU out of memory');
 
       try {
-        await datasource.runInference(mockImage, rotationDegrees: 0);
+        await datasource.runInference(fakeCameraFrame(), rotationDegrees: 0);
       } catch (_) {}
 
       expect(datasource.isolateBusy, isFalse,
@@ -124,7 +121,7 @@ void main() {
     test('after exception, subsequent inference runs normally', () async {
       datasource.shouldThrow = true;
       try {
-        await datasource.runInference(mockImage, rotationDegrees: 0);
+        await datasource.runInference(fakeCameraFrame(), rotationDegrees: 0);
       } catch (_) {}
 
       datasource.shouldThrow = false;
@@ -140,11 +137,10 @@ void main() {
           ];
 
       final results =
-          await datasource.runInference(mockImage, rotationDegrees: 0);
+          await datasource.runInference(fakeCameraFrame(), rotationDegrees: 0);
 
       expect(results, isNotEmpty,
-          reason: 'After exception, subsequent inference must still run. '
-              'If isolateBusy is not reset, the result is always [].');
+          reason: 'After exception, subsequent inference must still run.');
       expect(results.first['label'], 'bicycle');
       expect(datasource.inferenceCallCount, equals(2));
     });
@@ -160,9 +156,9 @@ void main() {
         return [];
       };
 
-      await ds.runInference(mockImage, rotationDegrees: 0);
+      await ds.runInference(fakeCameraFrame(), rotationDegrees: 0);
       expect(ds.isolateBusy, isFalse);
-      await ds.runInference(mockImage, rotationDegrees: 0);
+      await ds.runInference(fakeCameraFrame(), rotationDegrees: 0);
 
       expect(callCount, equals(2));
     });
@@ -170,7 +166,7 @@ void main() {
     test('closeModel resets isolateBusy', () async {
       datasource.shouldThrow = true;
       try {
-        await datasource.runInference(mockImage, rotationDegrees: 0);
+        await datasource.runInference(fakeCameraFrame(), rotationDegrees: 0);
       } catch (_) {}
 
       await datasource.closeModel();
@@ -180,12 +176,10 @@ void main() {
     });
   });
 
-  // DetectionDatasource contract
-
   group('DetectionDatasource contract', () {
     test('runInference returns [] before loadModel is called', () async {
       final result =
-          await datasource.runInference(mockImage, rotationDegrees: 0);
+          await datasource.runInference(fakeCameraFrame(), rotationDegrees: 0);
       expect(result, isEmpty);
     });
 
@@ -203,7 +197,7 @@ void main() {
           ];
 
       final result =
-          await datasource.runInference(mockImage, rotationDegrees: 90);
+          await datasource.runInference(fakeCameraFrame(), rotationDegrees: 90);
 
       expect(result.length, equals(1));
       expect(result.first['label'], 'car');
@@ -214,7 +208,7 @@ void main() {
       await datasource.closeModel();
 
       final result =
-          await datasource.runInference(mockImage, rotationDegrees: 0);
+          await datasource.runInference(fakeCameraFrame(), rotationDegrees: 0);
       expect(result, isEmpty,
           reason:
               'After closeModel(), inference must return [] since model is unloaded');

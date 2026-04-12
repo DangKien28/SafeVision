@@ -425,7 +425,8 @@ void _validateInputShape(Interpreter interpreter, int expectedInputSize) {
     throw StateError('[Isolate] Unexpected input rank ${s.length}: $s');
   }
   if (s[1] != expectedInputSize || s[2] != expectedInputSize) {
-    throw StateError('[Isolate] Input mismatch: app expects $expectedInputSize, '
+    throw StateError(
+        '[Isolate] Input mismatch: app expects $expectedInputSize, '
         'model expects ${s[1]}×${s[2]}. Update AppConstants.inputSize.');
   }
   debugPrint('[Isolate] Input shape validated: $s');
@@ -502,9 +503,8 @@ List<Map<String, dynamic>> _parseFlat({
   final int avail = (numChannels - classOffset).clamp(0, labels.length);
   if (avail <= 0) return [];
 
-  double at(int b, int c) => isTransposed
-      ? flat[c * numBoxes + b]
-      : flat[b * numChannels + c];
+  double at(int b, int c) =>
+      isTransposed ? flat[c * numBoxes + b] : flat[b * numChannels + c];
 
   final rawBoxes = <_RawBox>[];
   for (int i = 0; i < numBoxes; i++) {
@@ -532,7 +532,10 @@ List<Map<String, dynamic>> _parseFlat({
     if (score < confidenceThreshold) continue;
 
     final box = ImageConverter.unLetterboxBox(
-      cx: cx, cy: cy, bw: bw, bh: bh,
+      cx: cx,
+      cy: cy,
+      bw: bw,
+      bh: bh,
       padLeft: letterbox.padLeft,
       padTop: letterbox.padTop,
       scale: letterbox.scale,
@@ -543,9 +546,12 @@ List<Map<String, dynamic>> _parseFlat({
     if (box.width <= 0 || box.height <= 0) continue;
 
     rawBoxes.add(_RawBox(
-      left: box.left, top: box.top,
-      width: box.width, height: box.height,
-      score: score, classId: bestId,
+      left: box.left,
+      top: box.top,
+      width: box.width,
+      height: box.height,
+      score: score,
+      classId: bestId,
     ));
   }
 
@@ -576,8 +582,8 @@ List<_RawBox> _nms(List<_RawBox> boxes, double iouThreshold) {
   boxes.sort((a, b) => b.score.compareTo(a.score));
   final result = <_RawBox>[];
   for (final box in boxes) {
-    if (result
-        .every((k) => box.classId != k.classId || _iou(box, k) <= iouThreshold)) {
+    if (result.every(
+        (k) => box.classId != k.classId || _iou(box, k) <= iouThreshold)) {
       result.add(box);
     }
   }
@@ -598,9 +604,12 @@ class _RawBox {
   final double left, top, width, height, score;
   final int classId;
   const _RawBox({
-    required this.left, required this.top,
-    required this.width, required this.height,
-    required this.score, required this.classId,
+    required this.left,
+    required this.top,
+    required this.width,
+    required this.height,
+    required this.score,
+    required this.classId,
   });
 }
 
@@ -611,8 +620,11 @@ class _IsolateInitMsg {
   final SendPort ackPort;
   final bool allowNnapi;
   const _IsolateInitMsg({
-    required this.labels, required this.inputSize,
-    required this.modelBytes, required this.ackPort, required this.allowNnapi,
+    required this.labels,
+    required this.inputSize,
+    required this.modelBytes,
+    required this.ackPort,
+    required this.allowNnapi,
   });
 }
 
@@ -627,7 +639,9 @@ class _WarmupProbeMsg {
   final TransferableTypedData dummyTensor;
   final int inputSize;
   const _WarmupProbeMsg({
-    required this.replyPort, required this.dummyTensor, required this.inputSize,
+    required this.replyPort,
+    required this.dummyTensor,
+    required this.inputSize,
   });
 }
 
@@ -645,10 +659,15 @@ class _InferenceJob {
   final double confidenceThreshold, iouThreshold;
   final int maxDetections;
   const _InferenceJob({
-    required this.replyPort, required this.planeBytes,
-    required this.planeRowStrides, required this.planePixelStrides,
-    required this.imageWidth, required this.imageHeight,
-    required this.rotationDegrees, required this.confidenceThreshold,
-    required this.iouThreshold, required this.maxDetections,
+    required this.replyPort,
+    required this.planeBytes,
+    required this.planeRowStrides,
+    required this.planePixelStrides,
+    required this.imageWidth,
+    required this.imageHeight,
+    required this.rotationDegrees,
+    required this.confidenceThreshold,
+    required this.iouThreshold,
+    required this.maxDetections,
   });
 }

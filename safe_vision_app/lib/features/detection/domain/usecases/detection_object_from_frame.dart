@@ -1,5 +1,3 @@
-
-
 import '../../../../core/services/camera_service.dart' show CameraFrame;
 import '../entities/detection_object.dart';
 import '../repositories/detection_repository.dart';

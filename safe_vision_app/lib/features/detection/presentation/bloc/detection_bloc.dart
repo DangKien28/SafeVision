@@ -1,5 +1,3 @@
-
-
 import 'dart:async';
 
 import 'package:bloc_concurrency/bloc_concurrency.dart';
@@ -153,8 +151,8 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
       final newConsecutive = <String, int>{};
 
       for (final d in _sortBuffer) {
-        final idx = currentIndices.update(d.label, (v) => v + 1,
-            ifAbsent: () => 0);
+        final idx =
+            currentIndices.update(d.label, (v) => v + 1, ifAbsent: () => 0);
         final key = '${d.label}_$idx';
         final count = (_consecutiveFrames[key] ?? 0) + 1;
         newConsecutive[key] = count;

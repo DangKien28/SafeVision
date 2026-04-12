@@ -1,7 +1,15 @@
-import 'package:camera/camera.dart';
+// test/features/detection/domain/usecases/detect_object_test.dart
+// v4: MockCameraImage → CameraFrame throughout.
+// DetectionObjectFromFrame.call() and DetectionRepository.detectFromFrame()
+// now take CameraFrame instead of CameraImage.
+
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:safe_vision_app/core/services/camera_service.dart'
+    show CameraFrame;
 import 'package:safe_vision_app/core/usecases/usecase.dart';
 import 'package:safe_vision_app/features/detection/domain/entities/detection_object.dart';
 import 'package:safe_vision_app/features/detection/domain/repositories/detection_repository.dart';
@@ -10,7 +18,15 @@ import 'package:safe_vision_app/features/detection/domain/usecases/load_model_us
 
 class MockDetectionRepository extends Mock implements DetectionRepository {}
 
-class MockCameraImage extends Mock implements CameraImage {}
+class FakeCameraFrame extends Fake implements CameraFrame {}
+
+CameraFrame makeFakeFrame() => CameraFrame(
+      planes: [Uint8List(0), Uint8List(0), Uint8List(0)],
+      rowStrides: [640, 320, 320],
+      pixelStrides: [1, 2, 2],
+      width: 640,
+      height: 480,
+    );
 
 DetectionObject _makeDetection({
   String label = 'person',
@@ -33,16 +49,14 @@ DetectionObject _makeDetection({
 
 void main() {
   late MockDetectionRepository mockRepository;
-  late MockCameraImage mockImage;
 
   setUpAll(() {
-    registerFallbackValue(MockCameraImage());
+    registerFallbackValue(FakeCameraFrame());
     registerFallbackValue(const NoParams());
   });
 
   setUp(() {
     mockRepository = MockDetectionRepository();
-    mockImage = MockCameraImage();
   });
 
   group('DetectionObjectFromFrame', () {
@@ -52,15 +66,15 @@ void main() {
       usecase = DetectionObjectFromFrame(mockRepository);
     });
 
-    test('calls repository.detectFromFrame with provided image', () async {
+    test('calls repository.detectFromFrame with provided frame', () async {
       when(() => mockRepository.detectFromFrame(any(),
               rotationDegrees: any(named: 'rotationDegrees')))
           .thenAnswer((_) async => []);
 
-      await usecase(mockImage, rotationDegrees: 90);
+      final frame = makeFakeFrame();
+      await usecase(frame, rotationDegrees: 90);
 
-      verify(() =>
-              mockRepository.detectFromFrame(mockImage, rotationDegrees: 90))
+      verify(() => mockRepository.detectFromFrame(frame, rotationDegrees: 90))
           .called(1);
     });
 
@@ -73,7 +87,7 @@ void main() {
               rotationDegrees: any(named: 'rotationDegrees')))
           .thenAnswer((_) async => expected);
 
-      final result = await usecase(mockImage, rotationDegrees: 90);
+      final result = await usecase(makeFakeFrame(), rotationDegrees: 90);
 
       expect(result, equals(expected));
       expect(result.length, 2);
@@ -86,7 +100,7 @@ void main() {
               rotationDegrees: any(named: 'rotationDegrees')))
           .thenAnswer((_) async => []);
 
-      final result = await usecase(mockImage, rotationDegrees: 90);
+      final result = await usecase(makeFakeFrame(), rotationDegrees: 90);
 
       expect(result, isEmpty);
     });
@@ -96,7 +110,8 @@ void main() {
               rotationDegrees: any(named: 'rotationDegrees')))
           .thenThrow(Exception('Inference failed'));
 
-      expect(() => usecase(mockImage, rotationDegrees: 90), throwsException);
+      expect(
+          () => usecase(makeFakeFrame(), rotationDegrees: 90), throwsException);
     });
 
     test('calls repository exactly once per call', () async {
@@ -104,11 +119,11 @@ void main() {
               rotationDegrees: any(named: 'rotationDegrees')))
           .thenAnswer((_) async => []);
 
-      await usecase(mockImage, rotationDegrees: 90);
-      await usecase(mockImage, rotationDegrees: 90);
+      final frame = makeFakeFrame();
+      await usecase(frame, rotationDegrees: 90);
+      await usecase(frame, rotationDegrees: 90);
 
-      verify(() =>
-              mockRepository.detectFromFrame(mockImage, rotationDegrees: 90))
+      verify(() => mockRepository.detectFromFrame(frame, rotationDegrees: 90))
           .called(2);
     });
   });
@@ -122,24 +137,13 @@ void main() {
 
     test('call(NoParams()) forwards to repository.loadModel()', () async {
       when(() => mockRepository.loadModel()).thenAnswer((_) async {});
-
       await usecase.call(const NoParams());
-
-      verify(() => mockRepository.loadModel()).called(1);
-    });
-
-    test('call(NoParams()) actually calls repository.loadModel()', () async {
-      when(() => mockRepository.loadModel()).thenAnswer((_) async {});
-
-      await usecase.call(const NoParams());
-
       verify(() => mockRepository.loadModel()).called(1);
     });
 
     test('call(NoParams()) rethrows exception on failure', () async {
       when(() => mockRepository.loadModel())
           .thenThrow(Exception('Model file not found'));
-
       expect(() => usecase.call(const NoParams()), throwsException);
     });
 
@@ -149,37 +153,25 @@ void main() {
 
     test('does not call detectFromFrame', () async {
       when(() => mockRepository.loadModel()).thenAnswer((_) async {});
-
       await usecase.call(const NoParams());
-
       verifyNever(() => mockRepository.detectFromFrame(any(),
           rotationDegrees: any(named: 'rotationDegrees')));
     });
   });
 
   group('DetectionObject', () {
-    test(
-        'voiceWarning translates label to Vietnamese and concatenates position and distance',
-        () {
+    test('voiceWarning translates label to Vietnamese', () {
       final obj = _makeDetection(
-        label: 'person',
-        left: 0.1,
-        top: 0.1,
-        width: 0.4,
-        height: 0.4,
-      );
-
+          label: 'person', left: 0.1, top: 0.1, width: 0.4, height: 0.4);
       expect(obj.voiceWarning, contains('người đi bộ'));
     });
 
     test('isDangerous is true when area > 0.10', () {
-      final dangerous = _makeDetection(width: 0.4, height: 0.4);
-      expect(dangerous.isDangerous, isTrue);
+      expect(_makeDetection(width: 0.4, height: 0.4).isDangerous, isTrue);
     });
 
     test('isDangerous is false when area <= 0.10', () {
-      final safe = _makeDetection(width: 0.2, height: 0.4);
-      expect(safe.isDangerous, isFalse);
+      expect(_makeDetection(width: 0.2, height: 0.4).isDangerous, isFalse);
     });
   });
 

@@ -1,11 +1,66 @@
+// lib/core/services/camera_service.dart
+//
+// v4: Introduces CameraFrame — copies plane bytes on arrival, releases
+// Android AHardwareBuffer before inference begins.
+//
+// ROOT CAUSE of BLASTBufferQueue / MALI DEBUG errors:
+//   CameraImage holds a reference to the Android camera HAL buffer
+//   (AHardwareBuffer slot). Keeping CameraImage alive for the full inference
+//   duration (~2640ms CPU) prevented the camera HAL from recycling that slot.
+//   With 7 total buffer slots (max:5+2) and inference occupying one for 2640ms
+//   at ~30fps camera output, the producer filled all slots and BLASTBufferQueue
+//   logged: "Can't acquire next buffer. Already acquired max frames 7".
+//
+// Fix: copy all plane bytes into Uint8List inside the camera callback before
+// dispatching. CameraImage is then immediately eligible for GC and buffer
+// recycling, independent of inference duration.
+
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:safe_vision_app/core/utils/perf_monitor.dart';
 import '../constants/app_constants.dart';
 import '../error/exceptions.dart' as ex;
+
+/// Immutable snapshot of one camera frame with plane bytes already copied.
+///
+/// Unlike [CameraImage], this holds no reference to the underlying Android
+/// AHardwareBuffer. The camera HAL can recycle its buffer slot as soon as
+/// the [CameraImage] that produced this frame is garbage-collected — which
+/// happens immediately after [CameraFrame.fromCameraImage] returns.
+class CameraFrame {
+  final List<Uint8List> planes;
+  final List<int> rowStrides;
+  final List<int> pixelStrides;
+  final int width;
+  final int height;
+
+  const CameraFrame({
+    required this.planes,
+    required this.rowStrides,
+    required this.pixelStrides,
+    required this.width,
+    required this.height,
+  });
+
+  /// Copies all plane bytes from [image] into heap-allocated [Uint8List]s.
+  /// After this constructor returns, no reference to [image.planes] is
+  /// retained, allowing the Android buffer slot to be returned to the pool.
+  factory CameraFrame.fromCameraImage(CameraImage image) {
+    return CameraFrame(
+      planes: image.planes
+          .map((p) => Uint8List.fromList(p.bytes))
+          .toList(growable: false),
+      rowStrides:
+          image.planes.map((p) => p.bytesPerRow).toList(growable: false),
+      pixelStrides:
+          image.planes.map((p) => p.bytesPerPixel ?? 1).toList(growable: false),
+      width: image.width,
+      height: image.height,
+    );
+  }
+}
 
 /// Manages the [CameraController] lifecycle and the YUV420 frame stream.
 ///
@@ -16,9 +71,9 @@ import '../error/exceptions.dart' as ex;
 /// - Invalidate stale stream callbacks with [_streamGeneration] when the
 ///   camera is switched or reinitialized.
 ///
-/// Frame locking is owned entirely by [CameraService]. The [onFrame] callback
-/// receives an [onDone] function that must be called after inference finishes.
-/// If [onDone] is missed, the stream stays locked and freezes.
+/// v4: [startImageStream] callback receives [CameraFrame] instead of
+/// [CameraImage]. Plane bytes are copied inside the stream callback so the
+/// Android camera HAL buffer is released before inference begins.
 class CameraService {
   CameraController? _controller;
   List<CameraDescription> _cameras = [];
@@ -29,28 +84,17 @@ class CameraService {
 
   DateTime _lastFrameTime = DateTime.now();
 
-  /// Minimum interval between frames in milliseconds for the target FPS.
   static const int _minFrameMs = 1000 ~/ AppConstants.activeInferenceFps;
 
   /// Frame processing lock.
-  ///
-  /// THREADING INVARIANT: This field is read and written exclusively on the
-  /// main Dart isolate. Flutter's camera plugin delivers image-stream
-  /// callbacks on the platform thread, which is then scheduled into the
-  /// main Dart event loop — making mutation here safe without a mutex.
-  ///
-  /// If the camera plugin changes this delivery guarantee in a future
-  /// version, this field must be replaced with an atomic or a
-  /// [Completer]-based lock.
+  /// THREADING INVARIANT: read/written exclusively on the main Dart isolate.
   bool _isProcessingFrame = false;
 
   bool _isInitializing = false;
   bool _isDisposing = false;
   Future<void>? _disposeFuture;
 
-  /// Incremented every time the camera is initialized or switched.
-  /// Each frame callback captures the current generation and is ignored if it
-  /// no longer matches the latest value.
+  /// Incremented whenever the camera is initialized or switched.
   int _streamGeneration = 0;
 
   CameraController? get controller => _controller;
@@ -63,10 +107,7 @@ class CameraService {
       _cameras.isNotEmpty ? _cameras[_currentIndex].sensorOrientation : 0;
   int get rotationDegrees => _rotationDegrees;
 
-  // Initialization
-
   Future<void> initialize({int cameraIndex = 0}) async {
-    // Wait for any previous dispose operation to finish before reinitializing.
     final pendingDispose = _disposeFuture;
     if (pendingDispose != null) await pendingDispose;
 
@@ -94,7 +135,6 @@ class CameraService {
     _isProcessingFrame = false;
     _controller = null;
 
-    // Dispose the old controller before creating a new one.
     if (old != null) {
       try {
         if (old.value.isStreamingImages) await old.stopImageStream();
@@ -104,8 +144,6 @@ class CameraService {
       }
     }
 
-    // Front-camera rotation is mirrored because the sensor is mounted in the
-    // opposite direction.
     final bool isFront = camera.lensDirection == CameraLensDirection.front;
     _rotationDegrees = isFront
         ? camera.sensorOrientation % 360
@@ -125,13 +163,15 @@ class CameraService {
     );
   }
 
-  // Stream
-
   /// Starts the camera frame stream.
   ///
-  /// [onFrame] is called for frames that pass throttling and the busy guard.
-  /// The second parameter, [onDone], must be called after inference completes
-  /// so the next frame can proceed.
+  /// [onFrame] receives a [CameraFrame] (plane bytes already copied) and an
+  /// [onDone] callback that MUST be called after inference completes to
+  /// release the processing lock for the next frame.
+  ///
+  /// v4: Plane bytes are copied inside the stream callback via
+  /// [CameraFrame.fromCameraImage] before [onFrame] is invoked, so the
+  /// Android camera HAL buffer is recycled before inference begins.
   void startImageStream({
     required void Function(CameraFrame, void Function()) onFrame,
   }) {
@@ -153,14 +193,12 @@ class CameraService {
     final int streamGeneration = ++_streamGeneration;
 
     unawaited(controller.startImageStream((CameraImage image) {
-      // Ignore frames from a stream generation that is no longer valid.
       if (_isDisposing ||
           _controller != controller ||
           _streamGeneration != streamGeneration) {
         return;
       }
 
-      // Drop the frame if the previous inference is still running.
       if (_isProcessingFrame) {
         PerfMonitor.frameDropped();
         _busyDropCount++;
@@ -171,7 +209,6 @@ class CameraService {
         return;
       }
 
-      // Drop the frame if the minimum frame interval has not been reached yet.
       final now = DateTime.now();
       if (now.difference(_lastFrameTime).inMilliseconds < _minFrameMs) {
         _throttleDropCount++;
@@ -185,19 +222,12 @@ class CameraService {
       _isProcessingFrame = true;
       _lastFrameTime = now;
 
-      // Copy bytes immediately so the HAL can recycle the AHardwareBuffer slot.
-      // This prevents the BLASTBufferQueue from running out of buffers during inference.
-      final frame = CameraFrame(
-        width: image.width,
-        height: image.height,
-        planes: image.planes.map((p) => Uint8List.fromList(p.bytes)).toList(),
-        rowStrides: image.planes.map((p) => p.bytesPerRow).toList(),
-        pixelStrides: image.planes.map((p) => p.bytesPerPixel ?? 1).toList(),
-      );
+      // v4: Copy plane bytes immediately. After this line, `image` is not
+      // referenced by this closure. The camera plugin's buffer finalizer
+      // can reclaim the AHardwareBuffer slot independently of inference.
+      final CameraFrame frame = CameraFrame.fromCameraImage(image);
 
       onFrame(frame, () {
-        // onDone releases the processing lock and should be called by the
-        // caller after inference finishes, including from a finally block.
         _isProcessingFrame = false;
       });
     }).catchError((Object error, StackTrace stackTrace) {
@@ -228,10 +258,6 @@ class CameraService {
     await _setupController(_cameras[_currentIndex]);
   }
 
-  // Dispose
-
-  /// Disposes the controller and clears all resources.
-  /// The method is idempotent: repeated calls wait for the first one to finish.
   Future<void> dispose() async {
     final pendingDispose = _disposeFuture;
     if (pendingDispose != null) {
@@ -267,26 +293,4 @@ class CameraService {
       completer.complete();
     }
   }
-}
-
-/// A decoupled copy of a camera frame's YUV plane bytes.
-///
-/// Creating this copy immediately allows the [CameraImage] to be garbage
-/// collected and its underlying AHardwareBuffer slot returned to the camera
-/// HAL. This prevents buffer starvation and BLASTBufferQueue errors during
-/// long inferences.
-class CameraFrame {
-  final int width;
-  final int height;
-  final List<Uint8List> planes;
-  final List<int> rowStrides;
-  final List<int> pixelStrides;
-
-  const CameraFrame({
-    required this.width,
-    required this.height,
-    required this.planes,
-    required this.rowStrides,
-    required this.pixelStrides,
-  });
 }

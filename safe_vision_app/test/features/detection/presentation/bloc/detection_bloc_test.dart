@@ -1,8 +1,16 @@
+// test/features/detection/presentation/bloc/detection_bloc_test.dart
+// v4: CameraImage → CameraFrame throughout.
+// MockCameraImage removed; fakeCameraFrame() helper creates a minimal
+// CameraFrame with no AHardwareBuffer dependency.
+
+import 'dart:typed_data';
+
 import 'package:bloc_test/bloc_test.dart';
-import 'package:camera/camera.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:safe_vision_app/core/services/camera_service.dart'
+    show CameraFrame;
 import 'package:safe_vision_app/core/usecases/usecase.dart';
 import 'package:safe_vision_app/features/detection/domain/entities/detection_object.dart';
 import 'package:safe_vision_app/features/detection/domain/usecases/close_model_usecase.dart';
@@ -16,9 +24,17 @@ class MockLoadModelUsecase extends Mock implements LoadModelUsecase {}
 
 class MockDetectFromFrame extends Mock implements DetectionObjectFromFrame {}
 
-class MockCameraImage extends Mock implements CameraImage {}
-
 class MockCloseModelUsecase extends Mock implements CloseModelUsecase {}
+
+/// Creates a minimal [CameraFrame] for tests.
+/// No AHardwareBuffer, no camera plugin dependency.
+CameraFrame fakeCameraFrame() => CameraFrame(
+      planes: [Uint8List(0), Uint8List(0), Uint8List(0)],
+      rowStrides: [640, 320, 320],
+      pixelStrides: [1, 2, 2],
+      width: 640,
+      height: 480,
+    );
 
 DetectionObject _safeObject({
   String label = 'person',
@@ -54,25 +70,18 @@ void main() {
   late MockLoadModelUsecase mockLoadModel;
   late MockDetectFromFrame mockDetectFromFrame;
   late MockCloseModelUsecase mockCloseModel;
-  late MockCameraImage mockCameraImage;
 
   setUpAll(() {
-    // CameraImage is used with any() in detectFromFrame stubs.
-    registerFallbackValue(MockCameraImage());
-    // NoParams is used with any() in loadModel.call() and closeModel.call() stubs.
-    // Mocktail requires a fallback for every non-primitive type passed to any().
+    // Fallback for CameraFrame passed to detectFromFrame(any(), ...).
+    registerFallbackValue(fakeCameraFrame());
     registerFallbackValue(const NoParams());
   });
 
   setUp(() {
     mockLoadModel = MockLoadModelUsecase();
     mockDetectFromFrame = MockDetectFromFrame();
-    mockCameraImage = MockCameraImage();
     mockCloseModel = MockCloseModelUsecase();
 
-    // Default stubs — without these, DetectionStarted/Stopped would throw MissingStubError.
-    // LoadModelUsecase implements UseCase<void, NoParams>, so the only callable
-    // interface is .call(NoParams) — there is no .load() convenience method.
     when(() => mockLoadModel.call(any())).thenAnswer((_) async {});
     when(() => mockCloseModel.call(any())).thenAnswer((_) async {});
   });
@@ -136,7 +145,8 @@ void main() {
       return buildBloc();
     },
     seed: () => const DetectionModelReady(),
-    act: (bloc) => bloc.add(DetectionFrameReceived(mockCameraImage, 90, () {})),
+    act: (bloc) =>
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {})),
     expect: () => [
       predicate<DetectionState>(
         (s) => s is DetectionSuccess && s.detections.isEmpty,
@@ -153,7 +163,8 @@ void main() {
       return buildBloc();
     },
     seed: () => const DetectionModelReady(),
-    act: (bloc) => bloc.add(DetectionFrameReceived(mockCameraImage, 90, () {})),
+    act: (bloc) =>
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {})),
     expect: () => [isA<DetectionSuccess>()],
   );
 
@@ -168,10 +179,6 @@ void main() {
 
     blocTest<DetectionBloc, DetectionState>(
       'vật thể nguy hiểm → callback immediate=true sau 3 frame ổn định',
-      // _triggerWarningIfNeeded fires only when isStable (currentCount==3) OR
-      // isApproaching. With a single frame there is no previous area to compare
-      // and currentCount==1, so the callback is never called.
-      // Sending 3 identical frames makes currentCount reach 3 (isStable=true).
       build: () {
         when(() => mockDetectFromFrame(any(),
                 rotationDegrees: any(named: 'rotationDegrees')))
@@ -186,11 +193,11 @@ void main() {
       },
       seed: () => const DetectionModelReady(),
       act: (bloc) async {
-        bloc.add(DetectionFrameReceived(mockCameraImage, 90, () {}));
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
         await Future.delayed(const Duration(milliseconds: 10));
-        bloc.add(DetectionFrameReceived(mockCameraImage, 90, () {}));
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
         await Future.delayed(const Duration(milliseconds: 10));
-        bloc.add(DetectionFrameReceived(mockCameraImage, 90, () {}));
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
         await Future.delayed(const Duration(milliseconds: 10));
       },
       expect: () => [
@@ -207,9 +214,6 @@ void main() {
 
     blocTest<DetectionBloc, DetectionState>(
       'vật thể an toàn → callback immediate=false sau 3 frame ổn định',
-      // Same debounce reasoning as above — 3 frames required for isStable.
-      // A safe object (small area, ≤ dangerousAreaThreshold=0.10) triggers
-      // the queued (immediate=false) path, not the danger path.
       build: () {
         when(() => mockDetectFromFrame(any(),
                 rotationDegrees: any(named: 'rotationDegrees')))
@@ -224,11 +228,11 @@ void main() {
       },
       seed: () => const DetectionModelReady(),
       act: (bloc) async {
-        bloc.add(DetectionFrameReceived(mockCameraImage, 90, () {}));
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
         await Future.delayed(const Duration(milliseconds: 10));
-        bloc.add(DetectionFrameReceived(mockCameraImage, 90, () {}));
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
         await Future.delayed(const Duration(milliseconds: 10));
-        bloc.add(DetectionFrameReceived(mockCameraImage, 90, () {}));
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
         await Future.delayed(const Duration(milliseconds: 10));
       },
       expect: () => [
@@ -244,9 +248,6 @@ void main() {
     );
   });
 
-  // With `droppable()` transformer, frames arriving while inference is
-  // in-flight are discarded (exhaustMap semantics). CameraService already
-  // provides a frame lock, droppable() is defense-in-depth at the BLoC layer.
   blocTest<DetectionBloc, DetectionState>(
     'droppable: hai frame đến cùng lúc — chỉ xử lý 1 frame, frame 2 bị bỏ',
     build: () {
@@ -260,13 +261,12 @@ void main() {
     },
     seed: () => const DetectionModelReady(),
     act: (bloc) async {
-      bloc.add(DetectionFrameReceived(mockCameraImage, 90, () {}));
-      bloc.add(DetectionFrameReceived(mockCameraImage, 90, () {}));
+      bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
+      bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
       await Future.delayed(const Duration(milliseconds: 50));
     },
     expect: () => [isA<DetectionSuccess>()],
     verify: (_) {
-      // droppable discards the second frame while the first is in-flight.
       verify(() => mockDetectFromFrame(any(),
           rotationDegrees: any(named: 'rotationDegrees'))).called(1);
     },
@@ -281,7 +281,8 @@ void main() {
       return buildBloc();
     },
     seed: () => const DetectionModelReady(),
-    act: (bloc) => bloc.add(DetectionFrameReceived(mockCameraImage, 90, () {})),
+    act: (bloc) =>
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {})),
     expect: () => <DetectionState>[],
   );
 }

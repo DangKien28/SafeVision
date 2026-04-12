@@ -1,5 +1,3 @@
-
-
 import 'package:equatable/equatable.dart';
 import '../../../../core/services/camera_service.dart' show CameraFrame;
 

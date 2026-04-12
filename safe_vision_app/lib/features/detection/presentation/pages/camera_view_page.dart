@@ -1,4 +1,3 @@
-
 import 'dart:async';
 
 import 'package:camera/camera.dart';
@@ -294,7 +293,8 @@ class _DetectionOverlay extends StatelessWidget {
       fit: StackFit.expand,
       children: [
         RepaintBoundary(
-          child: ValueListenableBuilder<({List<SmoothedBox> boxes, int version})>(
+          child:
+              ValueListenableBuilder<({List<SmoothedBox> boxes, int version})>(
             valueListenable: boxNotifier,
             builder: (_, data, __) => IgnorePointer(
               child: CustomPaint(
@@ -367,7 +367,8 @@ class _CameraLayer extends StatelessWidget {
   Widget build(BuildContext context) {
     final ctrl = service.controller;
     if (!cameraReady || ctrl == null || !ctrl.value.isInitialized) {
-      return const Center(child: CircularProgressIndicator(color: Colors.white));
+      return const Center(
+          child: CircularProgressIndicator(color: Colors.white));
     }
     if (service.isFrontCamera) {
       return Transform(
