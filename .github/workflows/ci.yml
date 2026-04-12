@@ -1,0 +1,397 @@
+name: SafeVision CI/CD
+
+on:
+  push:
+    branches: [main, develop, 'feature/**', 'fix/**', 'hotfix/**']
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deploy environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options: [staging, production]
+
+# Cancel in-progress runs on the same branch to save CI minutes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Use channel: stable instead of pinning a specific version to avoid build
+  # failures when that version is unavailable on the runner. If pinning is
+  # required, check https://docs.flutter.dev/release/archive first.
+  FLUTTER_CHANNEL: stable
+  JAVA_VERSION: '17'
+
+defaults:
+  run:
+    working-directory: ./safe_vision_app
+
+jobs:
+
+  # ── 1. CODE QUALITY ────────────────────────────────────────────────────────
+  analyze:
+    name: Analyze & Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
+
+      - name: Cache pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            safe_vision_app/.dart_tool
+          key: pub-${{ hashFiles('safe_vision_app/pubspec.lock') }}
+          restore-keys: pub-
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Verify formatting
+        run: dart format --output=none --set-exit-if-changed lib/ test/
+
+      - name: Analyze code
+        run: flutter analyze --fatal-infos
+
+      - name: Check for unused dependencies
+        run: dart pub deps --json | dart run dependency_validator || true
+
+  # ── 2. UNIT & WIDGET TESTS ────────────────────────────────────────────────
+  test:
+    name: Tests (unit + widget)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: analyze
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
+
+      - name: Cache pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            safe_vision_app/.dart_tool
+          key: pub-${{ hashFiles('safe_vision_app/pubspec.lock') }}
+          restore-keys: pub-
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Run all tests with coverage
+        run: |
+          flutter test \
+            --coverage \
+            --reporter=github \
+            --timeout=60s \
+            test/
+
+      - name: Check coverage threshold (80%)
+        run: |
+          sudo apt-get install -y lcov
+
+          # Remove platform-dependent files that require native plugins and
+          # cannot be meaningfully unit-tested (FlutterTts, SharedPreferences,
+          # Camera, TFLite).
+          # --ignore-errors unused: some files may not appear in coverage data
+          # at all (e.g. camera_service.dart is never imported by tests), so
+          # the exclude pattern would be "unused" and cause lcov to error out.
+          lcov --remove coverage/lcov.info \
+            --ignore-errors unused \
+            '*/tts_service.dart' \
+            '*/local_storage_service.dart' \
+            '*/image_converter.dart' \
+            '*/camera_service.dart' \
+            '*/detection_local_datasource_impl.dart' \
+            '*/injection_container.dart' \
+            '*/main.dart' \
+            --output-file coverage/lcov_filtered.info
+
+          lcov --summary coverage/lcov_filtered.info 2>&1 | tee coverage_summary.txt
+          COVERAGE=$(lcov --summary coverage/lcov_filtered.info 2>&1 | grep "lines" | grep -oP '\d+\.\d+(?=%)' | head -1)
+          echo "Coverage: ${COVERAGE}%"
+          if (( $(echo "$COVERAGE < 80" | bc -l) )); then
+            echo "Coverage ${COVERAGE}% is below the 80% minimum threshold"
+            exit 1
+          fi
+          echo "Coverage ${COVERAGE}% meets the threshold"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: safe_vision_app/coverage/lcov.info
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            safe_vision_app/coverage/
+            safe_vision_app/test-results.xml
+
+  # ── 3. BUILD ANDROID ──────────────────────────────────────────────────────
+  build-android:
+    name: Build Android
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    needs: test
+    strategy:
+      matrix:
+        build-type: [debug, release]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('safe_vision_app/android/gradle/wrapper/gradle-wrapper.properties') }}-${{ hashFiles('safe_vision_app/android/**/*.gradle*') }}
+          restore-keys: gradle-
+
+      - name: Cache pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ hashFiles('safe_vision_app/pubspec.lock') }}
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Restore keystore
+        if: matrix.build-type == 'release'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/keystore.jks
+          echo "storeFile=keystore.jks"                              > android/key.properties
+          echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> android/key.properties
+          echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}"          >> android/key.properties
+          echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}"    >> android/key.properties
+
+      - name: Build APK (debug)
+        if: matrix.build-type == 'debug'
+        run: flutter build apk --debug --split-per-abi
+
+      - name: Build APK (release)
+        if: matrix.build-type == 'release'
+        run: flutter build apk --release --split-per-abi --obfuscate --split-debug-info=build/debug-info
+
+      - name: Build App Bundle (release)
+        if: matrix.build-type == 'release'
+        run: flutter build appbundle --release --obfuscate --split-debug-info=build/debug-info
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ matrix.build-type }}
+          path: |
+            safe_vision_app/build/app/outputs/apk/**/*.apk
+            safe_vision_app/build/app/outputs/bundle/**/*.aab
+          retention-days: 7
+
+  # ── 4. BUILD iOS ──────────────────────────────────────────────────────────
+  build-ios:
+    name: Build iOS
+    runs-on: macos-14
+    timeout-minutes: 50
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: safe_vision_app/ios/Pods
+          key: pods-${{ hashFiles('safe_vision_app/ios/Podfile.lock') }}
+          restore-keys: pods-
+
+      - name: Cache pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ hashFiles('safe_vision_app/pubspec.lock') }}
+
+      - name: Install dependencies
+        run: |
+          flutter pub get
+          cd ios && pod install --repo-update
+
+      - name: Build iOS (no-codesign)
+        run: flutter build ios --release --no-codesign
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build
+          path: safe_vision_app/build/ios/iphoneos/Runner.app
+          retention-days: 7
+
+  # ── 5. SECURITY SCAN ──────────────────────────────────────────────────────
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: analyze
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Fetch at least 2 commits so TruffleHog can diff on push events
+          fetch-depth: 0
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Audit for known vulnerabilities
+        run: |
+          # dart pub audit is not available in all SDK versions.
+          # Use flutter pub deps to verify resolved dependencies and
+          # dart pub outdated to flag packages with known advisories.
+          flutter pub deps
+          dart pub outdated || true
+
+      - name: Check for hardcoded secrets
+        # TruffleHog requires distinct BASE and HEAD commits. On push events
+        # (especially force-pushes or initial pushes) BASE and HEAD can be
+        # identical, causing the action to exit with code 1. We guard this
+        # with continue-on-error and only run on pull_request events where
+        # a proper diff range is guaranteed.
+        if: github.event_name == 'pull_request'
+        uses: trufflesecurity/trufflehog@main
+        continue-on-error: true
+        with:
+          path: ./
+          base: ${{ github.event.pull_request.base.sha }}
+          head: ${{ github.event.pull_request.head.sha }}
+          extra_args: --only-verified
+
+  # ── 6. RELEASE (main branch only) ─────────────────────────────────────────
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [build-android, build-ios, security]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Android release artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: android-release
+          path: dist/android/
+
+      - name: Download iOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-build
+          path: dist/ios/
+
+      - name: Extract version from pubspec
+        id: version
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION"    >> $GITHUB_OUTPUT
+
+      - name: Generate changelog
+        id: changelog
+        uses: orhun/git-cliff-action@v3
+        with:
+          config: .github/cliff.toml
+          args: --latest --strip header
+        env:
+          OUTPUT: CHANGELOG_LATEST.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name:  ${{ steps.version.outputs.tag }}
+          name:      SafeVision ${{ steps.version.outputs.version }}
+          body_path: CHANGELOG_LATEST.md
+          draft:     false
+          prerelease: false
+          files: |
+            dist/android/**/*.apk
+            dist/android/**/*.aab
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── 7. NOTIFY ─────────────────────────────────────────────────────────────
+  notify:
+    name: Notify
+    runs-on: ubuntu-latest
+    needs: [test, build-android, build-ios]
+    if: always()
+    env:
+      # Evaluated once at job start; used by the step-level `if` guard below.
+      HAS_SLACK_TOKEN: ${{ secrets.SLACK_BOT_TOKEN != '' }}
+    steps:
+      - name: Notify Slack on failure
+        # Only run when a job has failed AND the Slack token is configured.
+        # Without SLACK_BOT_TOKEN the action errors with:
+        #   "Need to provide at least one botToken or webhookUrl"
+        if: contains(needs.*.result, 'failure') && env.HAS_SLACK_TOKEN == 'true'
+        uses: slackapi/slack-github-action@v1
+        with:
+          channel-id: 'C_SAFEVISION_ALERTS'
+          payload: |
+            {
+              "text": "SafeVision CI failed on `${{ github.ref_name }}`",
+              "attachments": [{
+                "color": "danger",
+                "fields": [
+                  { "title": "Branch", "value": "${{ github.ref_name }}", "short": true },
+                  { "title": "Commit", "value": "${{ github.sha }}",      "short": true },
+                  { "title": "Run",    "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false }
+                ]
+              }]
+            }
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}

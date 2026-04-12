@@ -13,7 +13,6 @@ class BoundingBoxModel {
     required this.height,
   });
 
-  /// Từ Map (JSON)
   factory BoundingBoxModel.fromMap(Map<String, dynamic> map) {
     return BoundingBoxModel(
       left: (map['left'] as num).toDouble(),
@@ -23,7 +22,6 @@ class BoundingBoxModel {
     );
   }
 
-  /// Từ TFLite output: [top, left, bottom, right] normalized
   factory BoundingBoxModel.fromTFLiteList(List<dynamic> list) {
     final top = (list[0] as num).toDouble();
     final left = (list[1] as num).toDouble();

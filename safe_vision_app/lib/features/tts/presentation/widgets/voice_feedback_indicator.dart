@@ -3,7 +3,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/tts_bloc.dart';
 import '../bloc/tts_state.dart';
 
-/// Widget hiển thị trạng thái đang nói + tên vật thể đang được đọc
 class VoiceFeedbackIndicator extends StatelessWidget {
   const VoiceFeedbackIndicator({super.key});
 
@@ -16,9 +15,10 @@ class VoiceFeedbackIndicator extends StatelessWidget {
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.65),
+            color: Colors.black.withValues(alpha: 0.65),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.greenAccent.withOpacity(0.6)),
+            border:
+                Border.all(color: Colors.greenAccent.withValues(alpha: 0.6)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -46,7 +46,8 @@ class VoiceFeedbackIndicator extends StatelessWidget {
 
 class _PulsingDot extends StatefulWidget {
   const _PulsingDot();
-  @override State<_PulsingDot> createState() => _PulsingDotState();
+  @override
+  State<_PulsingDot> createState() => _PulsingDotState();
 }
 
 class _PulsingDotState extends State<_PulsingDot>
@@ -65,17 +66,21 @@ class _PulsingDotState extends State<_PulsingDot>
   }
 
   @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _anim,
       builder: (_, __) => Container(
-        width: 8, height: 8,
+        width: 8,
+        height: 8,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: Colors.greenAccent.withOpacity(_anim.value),
+          color: Colors.greenAccent.withValues(alpha: _anim.value),
         ),
       ),
     );

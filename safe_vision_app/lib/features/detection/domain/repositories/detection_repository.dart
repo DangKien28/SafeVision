@@ -1,13 +1,11 @@
-import 'package:camera/camera.dart';
+import '../../../../core/services/camera_service.dart' show CameraFrame;
 import '../entities/detection_object.dart';
 
 abstract class DetectionRepository {
-  /// Tải model TFLite vào bộ nhớ
   Future<void> loadModel();
-
-  /// Chạy inference trên một frame camera
-  Future<List<DetectionObject>> detectFromFrame(CameraImage image);
-
-  /// Giải phóng tài nguyên model
+  Future<List<DetectionObject>> detectFromFrame(
+    CameraFrame frame, {
+    required int rotationDegrees,
+  });
   Future<void> closeModel();
 }

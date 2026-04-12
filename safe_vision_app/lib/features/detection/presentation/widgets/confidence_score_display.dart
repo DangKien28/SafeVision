@@ -23,7 +23,7 @@ class ConfidenceScoreDisplay extends StatelessWidget {
       margin: const EdgeInsets.all(10),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.60),
+        color: Colors.black.withValues(alpha: 0.60),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.white24),
       ),
@@ -53,7 +53,7 @@ class _DetectionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final pct   = detection.confidence.clamp(0.0, 1.0);
+    final pct = detection.confidence.clamp(0.0, 1.0);
     final color = pct > 0.75
         ? Colors.greenAccent
         : pct > 0.5
@@ -65,7 +65,8 @@ class _DetectionRow extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 8, height: 8,
+            width: 8,
+            height: 8,
             decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
           const SizedBox(width: 6),

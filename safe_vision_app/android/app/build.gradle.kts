@@ -6,11 +6,11 @@ plugins {
 
 android {
     namespace = "com.example.safe_vision_app"
-    // Đã nâng cấp lên 36 để chạy mượt flutter_tts
-    compileSdk = 36 
-    
-    // Đã nâng lên 27 để hỗ trợ Camera và AI (TFLite)
-    ndkVersion = "27.0.12077973" 
+
+    // compileSdk 36 is required for the latest APIs used by the
+    // camera and permission_handler plugins.
+    compileSdk = 36
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -23,18 +23,21 @@ android {
 
     defaultConfig {
         applicationId = "com.example.safe_vision_app"
-        
-        // Mức tối thiểu API 26 để AI hoạt động ổn định
-        minSdk = 26 
-        
-        targetSdk = 35
+
+        // minSdk 24 (Android 7.0) is the lower bound for the camera2 API
+        // and the TFLite GPU delegate used by inference.
+        minSdk    = 24
+        targetSdk = 36
+
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
     buildTypes {
         release {
-            // Dùng debug key cho bản demo tạm thời
+            // For production releases, replace this signingConfig with a
+            // keystore configured through key.properties.
+            // Debug signing is used for now to keep development simple.
             signingConfig = signingConfigs.getByName("debug")
         }
     }
