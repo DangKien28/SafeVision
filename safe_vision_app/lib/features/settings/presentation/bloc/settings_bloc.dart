@@ -49,10 +49,7 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     final voiceEnabled = await _repository.getVoiceEnabled();
     final showPanel = await _repository.getShowConfidencePanel();
 
-    // Language is intentionally hardcoded to vi-VN rather than read from
-    // _repository.getTtsLanguage(). The repository getter exists for future
-    // multi-language support but is currently dead API surface.
-    final language = AppConstants.ttsLanguage;
+    final language = await _repository.getTtsLanguage();
 
     _detectionConfig.setConfidenceThreshold(confThresh);
     await _repository.setTtsLanguage(language);
@@ -63,6 +60,7 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
       confidenceThreshold: confThresh,
       voiceEnabled: voiceEnabled,
       showConfidencePanel: showPanel,
+      ttsLanguage: language,
       isLoading: false,
     ));
   }
@@ -72,9 +70,12 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     Emitter<SettingsState> emit,
   ) async {
     await _repository.setSpeechRate(e.rate);
-    // Pass the current language together with the new rate so the engine
-    // does not reset to its defaults.
-    await _configureTts(speechRate: e.rate, language: AppConstants.ttsLanguage);
+    await _configureTts(
+      speechRate: e.rate,
+      language: state.ttsLanguage.isEmpty
+          ? AppConstants.ttsLanguage
+          : state.ttsLanguage,
+    );
     emit(state.copyWith(speechRate: e.rate));
   }
 

@@ -30,14 +30,17 @@ class CameraViewPage extends StatefulWidget {
 class _CameraViewPageState extends State<CameraViewPage>
     with WidgetsBindingObserver {
   final CameraService _cameraService = sl<CameraService>();
-  final BoxTracker _tracker = BoxTracker();
 
   bool _cameraReady = false;
   int _cameraSession = 0;
+  int _boxVersion = 0;
 
   late final ValueNotifier<({List<SmoothedBox> boxes, int version})>
       _boxNotifier = ValueNotifier((boxes: const [], version: 0));
   bool _boxNotifierDisposed = false;
+  late final ValueNotifier<List<DetectionObject>> _detectionsNotifier =
+      ValueNotifier(const <DetectionObject>[]);
+  bool _detectionsNotifierDisposed = false;
 
   _LifecyclePhase _phase = _LifecyclePhase.active;
 
@@ -55,8 +58,8 @@ class _CameraViewPageState extends State<CameraViewPage>
     WidgetsBinding.instance.removeObserver(this);
     context.read<DetectionBloc>().add(const DetectionStopped());
     context.read<TtsBloc>().add(const TtsStop());
-    _tracker.clear();
     _disposeBoxNotifier();
+    _disposeDetectionsNotifier();
     unawaited(_cameraService.dispose());
     super.dispose();
   }
@@ -134,8 +137,8 @@ class _CameraViewPageState extends State<CameraViewPage>
 
     _cameraSession++;
     setState(() => _cameraReady = false);
-    _tracker.clear();
     _setBoxes(const []);
+    _setDetections(const []);
 
     try {
       await _cameraService.switchCamera();
@@ -191,29 +194,42 @@ class _CameraViewPageState extends State<CameraViewPage>
             listeners: [
               BlocListener<DetectionBloc, DetectionState>(
                 listenWhen: (_, curr) =>
-                    curr is DetectionSuccess || curr is DetectionInitial,
+                    curr is DetectionSuccess ||
+                    curr is DetectionInitial ||
+                    curr is DetectionFailure,
                 listener: (_, state) {
                   if (_phase == _LifecyclePhase.disposed ||
                       _boxNotifierDisposed) {
                     return;
                   }
                   if (state is DetectionSuccess) {
+                    _setDetections(state.detections);
                     if (!_cameraReady) return;
-                    _setBoxes(_tracker.update(state.detections));
-                  } else if (state is DetectionInitial) {
-                    _tracker.clear();
+                    _setBoxes(
+                      state.trackedDetections
+                          .map(SmoothedBox.fromTrackedDetection)
+                          .toList(growable: false),
+                    );
+                  } else if (state is DetectionInitial ||
+                      state is DetectionFailure) {
                     _setBoxes(const []);
+                    _setDetections(const []);
                   }
                 },
               ),
             ],
             child: BlocBuilder<DetectionBloc, DetectionState>(
               buildWhen: (prev, curr) {
-                if (curr is DetectionSuccess) return false;
-                return curr.runtimeType != prev.runtimeType;
+                if (curr is DetectionSuccess) return prev is! DetectionSuccess;
+                if (curr.runtimeType != prev.runtimeType) return true;
+                if (curr is DetectionFailure && prev is DetectionFailure) {
+                  return curr.message != prev.message;
+                }
+                return false;
               },
               builder: (context, state) => _DetectionOverlay(
                 boxNotifier: _boxNotifier,
+                detectionsNotifier: _detectionsNotifier,
                 state: state,
                 isFront: _cameraService.isFrontCamera,
                 onError: _buildError,
@@ -262,7 +278,15 @@ class _CameraViewPageState extends State<CameraViewPage>
 
   void _setBoxes(List<SmoothedBox> boxes) {
     if (_phase == _LifecyclePhase.disposed || _boxNotifierDisposed) return;
-    _boxNotifier.value = (boxes: boxes, version: _tracker.version);
+    _boxVersion++;
+    _boxNotifier.value = (boxes: boxes, version: _boxVersion);
+  }
+
+  void _setDetections(List<DetectionObject> detections) {
+    if (_phase == _LifecyclePhase.disposed || _detectionsNotifierDisposed) {
+      return;
+    }
+    _detectionsNotifier.value = List.unmodifiable(detections);
   }
 
   void _disposeBoxNotifier() {
@@ -270,18 +294,26 @@ class _CameraViewPageState extends State<CameraViewPage>
     _boxNotifierDisposed = true;
     _boxNotifier.dispose();
   }
+
+  void _disposeDetectionsNotifier() {
+    if (_detectionsNotifierDisposed) return;
+    _detectionsNotifierDisposed = true;
+    _detectionsNotifier.dispose();
+  }
 }
 
 enum _LifecyclePhase { active, paused, disposed }
 
 class _DetectionOverlay extends StatelessWidget {
   final ValueNotifier<({List<SmoothedBox> boxes, int version})> boxNotifier;
+  final ValueNotifier<List<DetectionObject>> detectionsNotifier;
   final DetectionState state;
   final bool isFront;
   final Widget Function(String) onError;
 
   const _DetectionOverlay({
     required this.boxNotifier,
+    required this.detectionsNotifier,
     required this.state,
     required this.isFront,
     required this.onError,
@@ -326,14 +358,14 @@ class _DetectionOverlay extends StatelessWidget {
           buildWhen: (p, c) => p.showConfidencePanel != c.showConfidencePanel,
           builder: (context, settings) {
             if (!settings.showConfidencePanel) return const SizedBox.shrink();
-            final detections = state is DetectionSuccess
-                ? (state as DetectionSuccess).detections
-                : <DetectionObject>[];
-            return Positioned(
-              top: MediaQuery.of(context).padding.top + 8,
-              left: 8,
-              right: 80,
-              child: ConfidenceScoreDisplay(detections: detections),
+            return ValueListenableBuilder<List<DetectionObject>>(
+              valueListenable: detectionsNotifier,
+              builder: (_, detections, __) => Positioned(
+                top: MediaQuery.of(context).padding.top + 8,
+                left: 8,
+                right: 80,
+                child: ConfidenceScoreDisplay(detections: detections),
+              ),
             );
           },
         ),

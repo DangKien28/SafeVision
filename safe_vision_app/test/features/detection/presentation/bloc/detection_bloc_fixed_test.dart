@@ -224,9 +224,12 @@ void main() {
         );
       },
       seed: () => const DetectionModelReady(),
-      act: (bloc) =>
-          bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {})),
-      expect: () => [isA<DetectionSuccess>()],
+      act: (bloc) async {
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
+        await Future.delayed(const Duration(milliseconds: 20));
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
+      },
+      expect: () => [isA<DetectionSuccess>(), isA<DetectionSuccess>()],
       verify: (_) {
         expect(capturedImmediate, isTrue);
         expect(capturedVibration, isTrue);
@@ -250,9 +253,12 @@ void main() {
         );
       },
       seed: () => const DetectionModelReady(),
-      act: (bloc) =>
-          bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {})),
-      expect: () => [isA<DetectionSuccess>()],
+      act: (bloc) async {
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
+        await Future.delayed(const Duration(milliseconds: 20));
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
+      },
+      expect: () => [isA<DetectionSuccess>(), isA<DetectionSuccess>()],
       verify: (_) {
         expect(capturedImmediate, isFalse);
         expect(capturedVibration, isFalse);
@@ -307,6 +313,75 @@ void main() {
 
       expect(doneCalled, isTrue,
           reason: 'onDone() phải được gọi sau mỗi frame');
+      await bloc.close();
+    });
+  });
+
+  group('Lifecycle race protection', () {
+    test('does not emit stale DetectionSuccess after DetectionStopped',
+        () async {
+      when(() => mockDetectFromFrame(any(),
+              rotationDegrees: any(named: 'rotationDegrees')))
+          .thenAnswer((_) async {
+        await Future.delayed(const Duration(milliseconds: 60));
+        return [_safeObject()];
+      });
+
+      final emitted = <DetectionState>[];
+      final bloc = buildBloc()..stream.listen(emitted.add);
+
+      bloc.add(const DetectionStarted());
+      await Future.delayed(const Duration(milliseconds: 20));
+
+      bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
+      await Future.delayed(const Duration(milliseconds: 10));
+      bloc.add(const DetectionStopped());
+      await Future.delayed(const Duration(milliseconds: 120));
+
+      expect(
+        emitted.whereType<DetectionSuccess>(),
+        isEmpty,
+        reason: 'Kết quả hoàn thành sau stop phải bị loại bỏ',
+      );
+
+      await bloc.close();
+    });
+  });
+
+  group('Warning throttling', () {
+    test(
+        'safe object warning waits for stability and avoids repeating same track',
+        () async {
+      var warningCount = 0;
+
+      when(() => mockDetectFromFrame(any(),
+              rotationDegrees: any(named: 'rotationDegrees')))
+          .thenAnswer((_) async => [_safeObject()]);
+
+      final bloc = buildBloc(
+        onWarning: (
+            {required text, required immediate, required withVibration}) {
+          warningCount++;
+        },
+      );
+
+      bloc.add(const DetectionStarted());
+      await Future.delayed(const Duration(milliseconds: 20));
+
+      bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
+      await Future.delayed(const Duration(milliseconds: 20));
+      expect(warningCount, 0,
+          reason: 'Frame đầu tiên phải chờ track ổn định trước khi cảnh báo');
+
+      bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
+      await Future.delayed(const Duration(milliseconds: 20));
+      expect(warningCount, 1);
+
+      bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
+      await Future.delayed(const Duration(milliseconds: 20));
+      expect(warningCount, 1,
+          reason: 'Cùng một track không được lặp cảnh báo liên tục');
+
       await bloc.close();
     });
   });

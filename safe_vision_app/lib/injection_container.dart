@@ -1,12 +1,13 @@
 import 'package:get_it/get_it.dart';
-import 'package:safe_vision_app/features/tts/presentation/bloc/tts_event.dart';
 
 import 'core/config/detection_config.dart';
 import 'core/services/camera_service.dart';
+import 'core/services/warning_dispatcher.dart';
 import 'features/detection/data/datasources/detection_local_datasource.dart';
 import 'features/detection/data/datasources/detection_local_datasource_impl.dart';
 import 'features/detection/data/repositories/detection_repository_impl.dart';
 import 'features/detection/domain/repositories/detection_repository.dart';
+import 'features/detection/domain/services/object_tracker.dart';
 import 'features/detection/domain/usecases/load_model_usecase.dart';
 import 'features/detection/domain/usecases/close_model_usecase.dart';
 import 'features/detection/domain/usecases/detection_object_from_frame.dart';
@@ -19,6 +20,7 @@ import 'features/tts/domain/usecases/stop_speaking_usecase.dart';
 import 'features/tts/domain/usecases/pause_speaking_usecase.dart';
 import 'features/tts/domain/usecases/configure_tts_usecase.dart';
 import 'features/tts/presentation/bloc/tts_bloc.dart';
+import 'features/tts/presentation/services/tts_warning_dispatcher.dart';
 import 'features/settings/data/datasources/local_storage_service.dart';
 import 'features/settings/data/repositories/settings_repository_impl.dart';
 import 'features/settings/domain/repositories/settings_repository.dart';
@@ -62,10 +64,12 @@ Future<void> init() async {
         stopSpeaking: sl(),
         pauseSpeaking: sl<PauseSpeakingUsecase>(),
         settingsRepository: sl<SettingsRepository>(),
+        playbackUpdates: sl<TtsService>().playbackUpdates,
       ));
 
   // Detection
   sl.registerSingleton(DetectionConfig());
+  sl.registerLazySingleton<ObjectTracker>(() => ObjectTracker());
   sl.registerSingleton<DetectionLocalDatasource>(
     DetectionLocalDatasourceImpl(sl<DetectionConfig>()),
   );
@@ -79,19 +83,15 @@ Future<void> init() async {
   // A lazy singleton prevents multiple DetectionBloc instances from sharing
   // one datasource singleton and trying to spawn competing isolates on the
   // same interpreter at the same time.
+  sl.registerLazySingleton<WarningDispatcher>(
+    () => TtsWarningDispatcher(() => sl<TtsBloc>()),
+  );
   sl.registerLazySingleton<DetectionBloc>(() => DetectionBloc(
         loadModel: sl<LoadModelUsecase>(),
         closeModel: sl<CloseModelUsecase>(),
         detectFromFrame: sl<DetectionObjectFromFrame>(),
-        onWarning: ({
-          required String text,
-          required bool immediate,
-          required bool withVibration,
-        }) {
-          sl<TtsBloc>().add(
-            TtsSpeak(text, immediate: immediate, withVibration: withVibration),
-          );
-        },
+        warningDispatcher: sl<WarningDispatcher>(),
+        objectTracker: sl<ObjectTracker>(),
       ));
 
   // Camera

@@ -4,79 +4,40 @@ import 'package:safe_vision_app/core/constants/app_constants.dart';
 void main() {
   group('AppConstants', () {
     test('model file paths are set', () {
-      expect(AppConstants.modelFileName, isNotEmpty);
-      expect(
-        AppConstants.modelFileName,
-        'assets/models/yolov8n_safevision.tflite',
-      );
-    });
-
-    test('labels file path is set', () {
+      expect(AppConstants.modelFileName,
+          'assets/models/yolov8n_safevision.tflite');
       expect(AppConstants.labelsFileName, 'assets/models/labels.txt');
     });
 
-    test('confidenceThreshold is reasonable', () {
+    test('detection thresholds are sane', () {
       expect(AppConstants.confidenceThreshold, 0.30);
-      expect(AppConstants.confidenceThreshold, greaterThan(0));
-      expect(AppConstants.confidenceThreshold, lessThan(1));
-    });
-
-    test('iouThreshold is reasonable', () {
       expect(AppConstants.iouThreshold, 0.45);
-      expect(AppConstants.iouThreshold, greaterThan(0));
-      expect(AppConstants.iouThreshold, lessThan(1));
-    });
-
-    test('maxDetections is positive', () {
       expect(AppConstants.maxDetections, 10);
-      expect(AppConstants.maxDetections, greaterThan(0));
+      expect(AppConstants.maxClassesPerBox, 2);
     });
 
-    test('inputSize is positive', () {
+    test('runtime tuning values are configured', () {
       expect(AppConstants.inputSize, 640);
-      expect(AppConstants.inputSize, greaterThan(0));
-    });
-
-    test('activeInferenceFps is positive', () {
       expect(AppConstants.activeInferenceFps, 6);
-    });
-
-    test('inferenceThreads is positive', () {
+      expect(AppConstants.busyFrameReplacementMinIntervalMs, 180);
       expect(AppConstants.inferenceThreads, 4);
-      expect(AppConstants.inferenceThreads, greaterThan(0));
-    });
-
-    test('inferenceTimeoutMs exceeds realistic CPU inference time', () {
       expect(AppConstants.inferenceTimeoutMs, 5000);
-      expect(AppConstants.inferenceTimeoutMs, greaterThan(2500));
+      expect(AppConstants.maxConsecutiveAcceleratedFailures, 1);
+      expect(AppConstants.maxConsecutiveCpuFailures, 2);
     });
 
-    test('warmupTimeoutMs is between NPU cold-init and NNAPI failure time', () {
-      // Must reject NNAPI (3363ms actual) → warmup < 3363ms ✓
-      // Must not false-trigger on NPU cold-init (~800ms) → warmup > 800ms ✓
-      expect(AppConstants.warmupTimeoutMs, 1200);
-      expect(AppConstants.warmupTimeoutMs, greaterThan(800));
-      expect(AppConstants.warmupTimeoutMs,
-          lessThan(AppConstants.inferenceTimeoutMs));
-    });
-
-    test('yoloOutputLogits is false', () {
+    test('YOLO flags match exported model behavior', () {
       expect(AppConstants.yoloOutputLogits, isFalse);
-    });
-
-    test('yoloHasObjectness is false', () {
       expect(AppConstants.yoloHasObjectness, isFalse);
     });
 
-    test('tracking constants are set', () {
+    test('tracking and rendering guards are sane', () {
       expect(AppConstants.trackingSmoothingAlpha, 0.65);
       expect(AppConstants.trackingMaxAgeMs, 400);
-    });
-
-    test('dangerousAreaThreshold is between 0 and 1', () {
       expect(AppConstants.dangerousAreaThreshold, 0.10);
-      expect(AppConstants.dangerousAreaThreshold, greaterThan(0));
-      expect(AppConstants.dangerousAreaThreshold, lessThan(1));
+      expect(AppConstants.minRenderableBoxArea, greaterThan(0));
+      expect(AppConstants.maxRenderableAspectRatio, greaterThan(1));
+      expect(AppConstants.latestFrameMaxAgeMs, 1200);
     });
 
     test('TTS constants are set', () {

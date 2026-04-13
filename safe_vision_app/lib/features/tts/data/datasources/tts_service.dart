@@ -6,12 +6,16 @@ import 'dart:collection';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import '../../../../core/constants/app_constants.dart';
+import '../../domain/entities/tts_playback_update.dart';
 
 class TtsService {
   final FlutterTts _tts = FlutterTts();
+  final StreamController<TtsPlaybackUpdate> _playbackUpdates =
+      StreamController<TtsPlaybackUpdate>.broadcast();
 
   bool _isSpeaking = false;
   final List<String> _queue = [];
+  String _activeText = '';
 
   /// LinkedHashMap preserves insertion order so the oldest entry is always
   /// `_lastSpoken.entries.first` — O(1) LRU eviction without sorting.
@@ -33,7 +37,7 @@ class TtsService {
     double? pitch,
     double? volume,
   }) async {
-    _language = AppConstants.ttsLanguage;
+    _language = language ?? AppConstants.ttsLanguage;
     if (speechRate != null) _speechRate = speechRate;
     if (pitch != null) _pitch = pitch;
     if (volume != null) _volume = volume;
@@ -43,20 +47,47 @@ class TtsService {
     await _tts.setPitch(_pitch);
     await _tts.setVolume(_volume);
 
-    _tts.setStartHandler(() => _isSpeaking = true);
+    _tts.setStartHandler(() {
+      _isSpeaking = true;
+      _playbackUpdates.add(
+        TtsPlaybackUpdate(
+          status: TtsPlaybackStatus.started,
+          text: _activeText,
+        ),
+      );
+    });
     _tts.setCompletionHandler(() {
       _isSpeaking = false;
+      _activeText = '';
+      if (_queue.isEmpty) {
+        _playbackUpdates.add(
+          const TtsPlaybackUpdate(status: TtsPlaybackStatus.stopped),
+        );
+      }
       _processQueue();
     });
     _tts.setCancelHandler(() {
       _isSpeaking = false;
+      _activeText = '';
       _queue.clear();
+      _playbackUpdates.add(
+        const TtsPlaybackUpdate(status: TtsPlaybackStatus.stopped),
+      );
     });
-    _tts.setErrorHandler((_) {
+    _tts.setErrorHandler((message) {
       _isSpeaking = false;
+      _activeText = '';
+      _playbackUpdates.add(
+        TtsPlaybackUpdate(
+          status: TtsPlaybackStatus.error,
+          message: message,
+        ),
+      );
       _processQueue();
     });
   }
+
+  Stream<TtsPlaybackUpdate> get playbackUpdates => _playbackUpdates.stream;
 
   Future<bool> speakWarning(String text) async {
     final now = DateTime.now();
@@ -101,19 +132,30 @@ class TtsService {
     _queue.clear();
     _lastSpoken.clear();
     _lastPruneAt = null;
+    _activeText = '';
     await _tts.stop();
     _isSpeaking = false;
   }
 
-  Future<void> pause() async => _tts.pause();
+  Future<void> pause() async {
+    await _tts.pause();
+    _isSpeaking = false;
+    _activeText = '';
+    _playbackUpdates.add(
+      const TtsPlaybackUpdate(status: TtsPlaybackStatus.paused),
+    );
+  }
+
   bool get isSpeaking => _isSpeaking;
 
   Future<void> dispose() async {
     _queue.clear();
     _lastSpoken.clear();
     _lastPruneAt = null;
+    _activeText = '';
     await _tts.stop();
     _isSpeaking = false;
+    await _playbackUpdates.close();
   }
 
   // ── Private ──────────────────────────────────────────────────────────────
@@ -160,12 +202,20 @@ class TtsService {
 
   Future<void> _speak(String text) async {
     if (text.trim().isEmpty) return;
+    _activeText = text;
     _isSpeaking = true;
     try {
       await _tts.speak(text);
     } catch (e) {
       debugPrint('[TtsService] speak error: $e');
       _isSpeaking = false;
+      _activeText = '';
+      _playbackUpdates.add(
+        TtsPlaybackUpdate(
+          status: TtsPlaybackStatus.error,
+          message: e.toString(),
+        ),
+      );
       _processQueue();
     }
   }

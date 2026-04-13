@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import '../../domain/entities/tts_playback_update.dart';
 
 abstract class TtsEvent extends Equatable {
   const TtsEvent();
@@ -27,4 +28,13 @@ class TtsStop extends TtsEvent {
 
 class TtsPause extends TtsEvent {
   const TtsPause();
+}
+
+class TtsPlaybackReported extends TtsEvent {
+  const TtsPlaybackReported(this.update);
+
+  final TtsPlaybackUpdate update;
+
+  @override
+  List<Object?> get props => [update.status, update.text, update.message];
 }

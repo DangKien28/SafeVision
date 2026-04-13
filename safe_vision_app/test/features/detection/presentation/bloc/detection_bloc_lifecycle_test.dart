@@ -1,7 +1,11 @@
+import 'dart:typed_data';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:safe_vision_app/core/services/camera_service.dart'
+    show CameraFrame;
 import 'package:safe_vision_app/core/usecases/usecase.dart';
 import 'package:safe_vision_app/features/detection/domain/usecases/close_model_usecase.dart';
 import 'package:safe_vision_app/features/detection/domain/usecases/detection_object_from_frame.dart';
@@ -16,6 +20,14 @@ class MockCloseModelUsecase extends Mock implements CloseModelUsecase {}
 
 class MockDetectFromFrame extends Mock implements DetectionObjectFromFrame {}
 
+CameraFrame fakeCameraFrame() => CameraFrame(
+      planes: [Uint8List(0), Uint8List(0), Uint8List(0)],
+      rowStrides: [640, 320, 320],
+      pixelStrides: [1, 2, 2],
+      width: 640,
+      height: 480,
+    );
+
 void main() {
   late MockLoadModelUsecase mockLoad;
   late MockCloseModelUsecase mockClose;
@@ -23,6 +35,7 @@ void main() {
 
   setUpAll(() {
     registerFallbackValue(const NoParams());
+    registerFallbackValue(fakeCameraFrame());
   });
 
   setUp(() {
@@ -63,8 +76,9 @@ void main() {
       await Future.delayed(const Duration(milliseconds: 200));
       await bloc.close();
 
-      // close must always precede the second load
-      final closeIndex = order.lastIndexOf('close');
+      // The first close (triggered by stop) must complete before the restart
+      // begins its next load. A later close from bloc.close() is expected.
+      final closeIndex = order.indexOf('close');
       final loadIndex = order.lastIndexOf('load');
       expect(closeIndex, lessThan(loadIndex),
           reason: 'closeModel must complete before the next loadModel call. '
@@ -95,5 +109,18 @@ void main() {
         const DetectionModelReady(),
       ],
     );
+  });
+
+  test('close() releases the model even without DetectionStopped', () async {
+    when(() => mockLoad.call(any())).thenAnswer((_) async {});
+    when(() => mockClose.call(any())).thenAnswer((_) async {});
+
+    final bloc = buildBloc();
+    bloc.add(const DetectionStarted());
+    await Future.delayed(const Duration(milliseconds: 50));
+
+    await bloc.close();
+
+    verify(() => mockClose.call(any())).called(1);
   });
 }

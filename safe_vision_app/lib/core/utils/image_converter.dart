@@ -1,38 +1,3 @@
-// lib/core/utils/image_converter.dart
-//
-// PRODUCTION-READY — YUV420 → Float32 letterbox conversion
-// ==========================================================
-// FIX: Replaced floating-point BT.601 coefficients with integer arithmetic.
-//
-// Problem:
-//   At 640×640 input the original code ran 409,600 pixel iterations, each
-//   doing 3 floating-point multiplications, 3 double.clamp(0,255) calls, and
-//   3 divisions by 255.0. On a mid-range ARM core without FPU acceleration,
-//   this alone could account for 40–80 ms per frame — dominating the isolate
-//   budget before TFLite even ran.
-//
-// Fix:
-//   Switch to integer BT.601 using fixed-point arithmetic (coefficients
-//   pre-scaled by 256, final result right-shifted by 8). This avoids all
-//   double operations in the inner loop. Only one multiply-by-inverse (/ 255.0)
-//   per channel at the end for normalization — now expressed as a
-//   precomputed reciprocal constant applied via multiplication.
-//   Measured speedup: ~3× on Cortex-A55.
-//
-// Correctness:
-//   BT.601 full-swing (no 16/235 clamping, matching most mobile cameras):
-//     R = clamp(Y + 1.402 * V', 0, 255)           — V' = V - 128
-//     G = clamp(Y - 0.344136 * U' - 0.714136 * V', 0, 255)  — U' = U - 128
-//     B = clamp(Y + 1.772 * U', 0, 255)
-//
-//   Integer form (×256 scale, >>8 shift):
-//     R = clamp((256 * Y + 359 * V') >> 8, 0, 255)
-//     G = clamp((256 * Y -  88 * U' - 183 * V') >> 8, 0, 255)
-//     B = clamp((256 * Y + 454 * U') >> 8, 0, 255)
-//
-//   Maximum rounding error vs. exact float: ±1 LSB (< 0.4% after /255.0
-//   normalization). Invisible in YOLOv8 inference.
-
 import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 
@@ -42,6 +7,10 @@ class LetterboxResult {
   /// Float32 tensor in `[H x W x 3]` format with normalized `[0.0, 1.0]`
   /// values, RGB channel order, and NHWC layout without a batch dimension.
   final Float32List inputTensor;
+
+  /// Raw tensor bytes view used when writing into TFLite without triggering
+  /// accidental dynamic reshapes in `tflite_flutter`.
+  ByteBuffer get inputBuffer => inputTensor.buffer;
 
   /// Scale factor applied to the original image.
   final double scale;
@@ -386,6 +355,7 @@ class ImageConverter {
     required double cy,
     required double bw,
     required double bh,
+    required bool coordinatesAreNormalized,
     required double padLeft,
     required double padTop,
     required double scale,
@@ -393,23 +363,34 @@ class ImageConverter {
     required int origHeight,
     required int inputSize,
   }) {
-    final cxPx = cx * inputSize;
-    final cyPx = cy * inputSize;
-    final wPx = bw * inputSize;
-    final hPx = bh * inputSize;
+    final coordScale = coordinatesAreNormalized ? inputSize.toDouble() : 1.0;
+    final cxPx = cx * coordScale;
+    final cyPx = cy * coordScale;
+    final wPx = bw * coordScale;
+    final hPx = bh * coordScale;
     final padLPx = padLeft * inputSize;
     final padTPx = padTop * inputSize;
 
     final x1 = (cxPx - wPx / 2 - padLPx) / scale;
     final y1 = (cyPx - hPx / 2 - padTPx) / scale;
-    final w = wPx / scale;
-    final h = hPx / scale;
+    final x2 = (cxPx + wPx / 2 - padLPx) / scale;
+    final y2 = (cyPx + hPx / 2 - padTPx) / scale;
+
+    final clampedLeft = x1.clamp(0.0, origWidth.toDouble());
+    final clampedTop = y1.clamp(0.0, origHeight.toDouble());
+    final clampedRight = x2.clamp(0.0, origWidth.toDouble());
+    final clampedBottom = y2.clamp(0.0, origHeight.toDouble());
+
+    final widthPx =
+        (clampedRight - clampedLeft).clamp(0.0, origWidth.toDouble());
+    final heightPx =
+        (clampedBottom - clampedTop).clamp(0.0, origHeight.toDouble());
 
     return (
-      left: (x1 / origWidth).clamp(0.0, 1.0),
-      top: (y1 / origHeight).clamp(0.0, 1.0),
-      width: (w / origWidth).clamp(0.0, 1.0),
-      height: (h / origHeight).clamp(0.0, 1.0),
+      left: (clampedLeft / origWidth).clamp(0.0, 1.0),
+      top: (clampedTop / origHeight).clamp(0.0, 1.0),
+      width: (widthPx / origWidth).clamp(0.0, 1.0),
+      height: (heightPx / origHeight).clamp(0.0, 1.0),
     );
   }
 }

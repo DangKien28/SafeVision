@@ -1,4 +1,4 @@
-import '../../../../core/services/camera_service.dart' show CameraFrame;
+import '../../../../core/models/camera_frame.dart';
 
 abstract class DetectionLocalDatasource {
   Future<void> loadModel();

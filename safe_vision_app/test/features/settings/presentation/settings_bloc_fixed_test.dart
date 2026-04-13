@@ -109,10 +109,8 @@ void main() {
         isA<SettingsState>().having((s) => s.isLoading, 'isLoading', isTrue),
         isA<SettingsState>()
             .having((s) => s.isLoading, 'isLoading', isFalse)
-            .having((s) => s.speechRate, 'speechRate', closeTo(0.6, 0.001)),
-        isA<SettingsState>()
-            .having((s) => s.ttsLanguage, 'ttsLanguage', 'vi-VN')
-            .having((s) => s.speechRate, 'speechRate', closeTo(0.6, 0.001)),
+            .having((s) => s.speechRate, 'speechRate', closeTo(0.6, 0.001))
+            .having((s) => s.ttsLanguage, 'ttsLanguage', 'vi-VN'),
       ],
     );
 

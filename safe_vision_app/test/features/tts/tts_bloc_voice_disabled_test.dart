@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:safe_vision_app/features/settings/domain/repositories/settings_repository.dart';
+import 'package:safe_vision_app/features/tts/domain/entities/tts_playback_update.dart';
 import 'package:safe_vision_app/features/tts/domain/repositories/tts_repository.dart';
 import 'package:safe_vision_app/features/tts/domain/usecases/pause_speaking_usecase.dart';
 import 'package:safe_vision_app/features/tts/domain/usecases/speak_warning_usecase.dart';
@@ -18,17 +21,24 @@ class MockSettingsRepository extends Mock implements SettingsRepository {}
 void main() {
   late MockTtsRepository mockRepo;
   late MockSettingsRepository mockSettings;
+  late StreamController<TtsPlaybackUpdate> playbackController;
 
   setUp(() {
     mockRepo = MockTtsRepository();
     mockSettings = MockSettingsRepository();
+    playbackController = StreamController<TtsPlaybackUpdate>.broadcast();
   });
 
-  TtsBloc buildBloc() => TtsBloc(
+  tearDown(() async {
+    await playbackController.close();
+  });
+
+  TtsBloc buildBloc({bool withPlaybackUpdates = false}) => TtsBloc(
         speakWarning: SpeakWarningUsecase(mockRepo),
         stopSpeaking: StopSpeakingUsecase(mockRepo),
         pauseSpeaking: PauseSpeakingUsecase(mockRepo),
         settingsRepository: mockSettings,
+        playbackUpdates: withPlaybackUpdates ? playbackController.stream : null,
       );
 
   group('TtsBloc — voiceEnabled=false stops audio from any state', () {
@@ -71,5 +81,31 @@ void main() {
       expect(
           true, isTrue); // placeholder — real test needs FakeSharedPreferences
     });
+  });
+  group('TtsBloc â€” playback update stream', () {
+    blocTest<TtsBloc, TtsState>(
+      'uses playback updates to reflect actual engine state',
+      setUp: () {
+        when(() => mockSettings.getVoiceEnabled())
+            .thenAnswer((_) async => true);
+        when(() => mockRepo.speakWarning(any())).thenAnswer((_) async => true);
+      },
+      build: () => buildBloc(withPlaybackUpdates: true),
+      act: (bloc) async {
+        bloc.add(const TtsSpeak('xin chào'));
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        playbackController.add(
+          const TtsPlaybackUpdate(
+            status: TtsPlaybackStatus.started,
+            text: 'xin chào',
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        playbackController.add(
+          const TtsPlaybackUpdate(status: TtsPlaybackStatus.stopped),
+        );
+      },
+      expect: () => [const TtsSpeaking('xin chào'), const TtsStopped()],
+    );
   });
 }

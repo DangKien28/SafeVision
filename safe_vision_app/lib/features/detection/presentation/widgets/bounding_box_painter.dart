@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'package:flutter/material.dart';
 import '../../../../core/constants/app_constants.dart';
 import '../../domain/entities/detection_object.dart';
+import '../../domain/entities/tracked_detection.dart';
 
 /// Position and state for an object after tracker smoothing.
 /// [missedFrames] is used to gradually reduce opacity when the object
@@ -22,6 +23,19 @@ class SmoothedBox {
     required this.trackId,
     required this.missedFrames,
   });
+
+  factory SmoothedBox.fromTrackedDetection(TrackedDetection tracked) {
+    final box = tracked.detection.boundingBox;
+    return SmoothedBox(
+      left: box.left,
+      top: box.top,
+      width: box.width,
+      height: box.height,
+      label: tracked.detection.label,
+      trackId: tracked.trackId,
+      missedFrames: tracked.missedFrames,
+    );
+  }
 
   @override
   bool operator ==(Object other) =>

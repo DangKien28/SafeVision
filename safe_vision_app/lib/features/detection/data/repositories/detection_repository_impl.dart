@@ -1,6 +1,7 @@
 // lib/features/detection/data/repositories/detection_repository_impl.dart
 
-import '../../../../core/services/camera_service.dart' show CameraFrame;
+import '../../../../core/error/exceptions.dart';
+import '../../../../core/models/camera_frame.dart';
 import '../../domain/entities/detection_object.dart';
 import '../../domain/repositories/detection_repository.dart';
 import '../datasources/detection_local_datasource.dart';
@@ -17,22 +18,28 @@ class DetectionRepositoryImpl implements DetectionRepository {
     CameraFrame frame, {
     required int rotationDegrees,
   }) async {
-    final rawList = await _datasource.runInference(
-      frame,
-      rotationDegrees: rotationDegrees,
-    );
-    return rawList
-        .map((map) => DetectionObject(
-              label: map['label'] as String,
-              confidence: (map['confidence'] as num).toDouble(),
-              boundingBox: BoundingBox(
-                left: (map['left'] as num).toDouble(),
-                top: (map['top'] as num).toDouble(),
-                width: (map['width'] as num).toDouble(),
-                height: (map['height'] as num).toDouble(),
-              ),
-            ))
-        .toList();
+    try {
+      final rawList = await _datasource.runInference(
+        frame,
+        rotationDegrees: rotationDegrees,
+      );
+      return rawList
+          .map((map) => DetectionObject(
+                label: map['label'] as String,
+                confidence: (map['confidence'] as num).toDouble(),
+                boundingBox: BoundingBox(
+                  left: (map['left'] as num).toDouble(),
+                  top: (map['top'] as num).toDouble(),
+                  width: (map['width'] as num).toDouble(),
+                  height: (map['height'] as num).toDouble(),
+                ),
+              ))
+          .toList(growable: false);
+    } on InferenceException {
+      rethrow;
+    } catch (error) {
+      throw InferenceException(error.toString());
+    }
   }
 
   @override
