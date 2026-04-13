@@ -1,0 +1,6 @@
+ultralytics
+pyyaml
+numpy
+tensorflow
+opencv-python
+Pillow

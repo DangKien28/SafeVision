@@ -1,1 +1,6 @@
+ban
+cau_thang
+cay
+ghe
 nguoi_di_bo
+xe

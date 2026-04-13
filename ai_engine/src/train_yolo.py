@@ -2,25 +2,16 @@ import os
 import yaml
 from ultralytics import YOLO
 
-# --- Cấu hình đường dẫn Tuyệt Đối ---
-# Lấy thư mục hiện tại (src)
 current_dir = os.path.dirname(os.path.abspath(__file__))
-# Lấy thư mục gốc (ai_engine)
 base_dir = os.path.dirname(current_dir)
 
-# Đường dẫn đến thư mục chứa data (quan trọng để sửa lỗi path)
 data_dir = os.path.join(base_dir, 'data')
 
-# Các đường dẫn file
 dataset_yaml_path = os.path.join(data_dir, 'dataset.yaml')
 pretrained_model = os.path.join(base_dir, 'models', 'pretrained', 'yolov8n.pt')
 output_dir = os.path.join(base_dir, 'models', 'trained')
 
 def fix_dataset_yaml():
-    """
-    Hàm này tự động sửa file dataset.yaml để chèn đường dẫn tuyệt đối (path).
-    Giúp YOLO tìm thấy ảnh bất kể chạy từ đâu.
-    """
     print(f"--- Đang cấu hình lại dataset.yaml ---")
     
     if not os.path.exists(dataset_yaml_path):
@@ -34,14 +25,11 @@ def fix_dataset_yaml():
             if config is None: config = {}
 
         # 2. Cập nhật đường dẫn tuyệt đối
-        # 'path' là từ khóa YOLO dùng để xác định thư mục gốc của dataset
+
         config['path'] = data_dir 
         config['train'] = 'train/images'
         config['val'] = 'validation/images'
-        
-        # (Nếu file cũ chưa có names/nc, đảm bảo giữ nguyên nếu đã có, hoặc thêm mẫu nếu thiếu)
-        # Ở đây ta chỉ sửa path, giữ nguyên các cấu hình class (names) của bạn
-
+    
         # 3. Ghi đè lại file yaml
         with open(dataset_yaml_path, 'w', encoding='utf-8') as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
@@ -68,16 +56,16 @@ def train_model():
     try:
         results = model.train(
             data=dataset_yaml_path,
-            epochs=150,        # Tăng từ 50 lên 150 hoặc 200
+            epochs=150,        
             imgsz=640,
-            batch=8,           # Giảm batch xuống nếu máy yếu, hoặc để 16
+            batch=8,           
             project=output_dir,
             name='yolo_run_improved',
             exist_ok=True,
-            patience=50,       # Kiên nhẫn hơn, đợi 50 epoch không cải thiện mới dừng
-            device='cpu',        # Dùng GPU nếu có (hoặc 'cpu')
-            lr0=0.01,          # Tốc độ học ban đầu
-            augment=True       # Bật tính năng tự tạo thêm dữ liệu biến thể
+            patience=50,      
+            device='cpu',    
+            lr0=0.01,         
+            augment=True    
         )
 
         print("--- Huấn luyện hoàn tất ---")
@@ -87,7 +75,6 @@ def train_model():
     except Exception as e:
         print("\n--- CÓ LỖI XẢY RA KHI TRAIN ---")
         print(e)
-        print("Gợi ý: Hãy kiểm tra xem thư mục 'ai_engine/data/train/images' có chứa ảnh không.")
 
 if __name__ == '__main__':
     train_model()
