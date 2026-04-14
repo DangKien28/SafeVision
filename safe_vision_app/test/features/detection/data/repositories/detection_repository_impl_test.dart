@@ -59,7 +59,7 @@ void main() {
     test('converts raw maps to DetectionObject list', () async {
       final rawResults = [
         {
-          'label': 'car',
+          'label': 'xe',
           'confidence': 0.95,
           'left': 0.1,
           'top': 0.2,
@@ -67,7 +67,7 @@ void main() {
           'height': 0.4,
         },
         {
-          'label': 'dog',
+          'label': 'balo',
           'confidence': 0.80,
           'left': 0.5,
           'top': 0.5,
@@ -87,13 +87,13 @@ void main() {
       );
 
       expect(result.length, 2);
-      expect(result[0].label, 'car');
+      expect(result[0].label, 'xe');
       expect(result[0].confidence, 0.95);
       expect(result[0].boundingBox.left, 0.1);
       expect(result[0].boundingBox.top, 0.2);
       expect(result[0].boundingBox.width, 0.3);
       expect(result[0].boundingBox.height, 0.4);
-      expect(result[1].label, 'dog');
+      expect(result[1].label, 'balo');
       expect(result[1].confidence, 0.80);
     });
 

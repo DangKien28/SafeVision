@@ -21,7 +21,7 @@ void main() {
     }
 
     DetectionObject makeDetection({
-      String label = 'person',
+      String label = 'nguoi_di_bo',
       double confidence = 0.85,
       double left = 0.1,
       double top = 0.1,
@@ -44,34 +44,34 @@ void main() {
       await tester.pumpWidget(buildWidget([]));
 
       expect(find.byType(SizedBox), findsWidgets);
-      expect(find.text('person'), findsNothing);
+      expect(find.text('nguoi_di_bo'), findsNothing);
     });
 
     testWidgets('displays label when a single object is detected',
         (tester) async {
-      await tester.pumpWidget(buildWidget([makeDetection(label: 'bicycle')]));
+      await tester.pumpWidget(buildWidget([makeDetection(label: 'xe')]));
 
-      expect(find.textContaining('bicycle'), findsOneWidget);
+      expect(find.textContaining('xe'), findsOneWidget);
     });
 
     testWidgets('displays full labels for multiple detected objects',
         (tester) async {
       final detections = [
-        makeDetection(label: 'person', confidence: 0.9),
-        makeDetection(label: 'bicycle', confidence: 0.8),
-        makeDetection(label: 'car', confidence: 0.7),
+        makeDetection(label: 'nguoi_di_bo', confidence: 0.9),
+        makeDetection(label: 'xe', confidence: 0.8),
+        makeDetection(label: 'balo', confidence: 0.7),
       ];
       await tester.pumpWidget(buildWidget(detections));
 
-      expect(find.textContaining('person'), findsOneWidget);
-      expect(find.textContaining('bicycle'), findsOneWidget);
-      expect(find.textContaining('car'), findsOneWidget);
+      expect(find.textContaining('nguoi_di_bo'), findsOneWidget);
+      expect(find.textContaining('xe'), findsOneWidget);
+      expect(find.textContaining('balo'), findsOneWidget);
     });
 
     testWidgets('displays the count of detected objects', (tester) async {
       await tester.pumpWidget(buildWidget([
-        makeDetection(label: 'person'),
-        makeDetection(label: 'car'),
+        makeDetection(label: 'nguoi_di_bo'),
+        makeDetection(label: 'balo'),
       ]));
 
       expect(find.textContaining('2'), findsWidgets);
@@ -79,7 +79,7 @@ void main() {
 
     testWidgets('displays confidence percentage', (tester) async {
       await tester.pumpWidget(buildWidget([
-        makeDetection(label: 'person', confidence: 0.85),
+        makeDetection(label: 'nguoi_di_bo', confidence: 0.85),
       ]));
 
       expect(find.textContaining('85'), findsWidgets);
@@ -89,7 +89,7 @@ void main() {
       const testMaxItems = 5;
       final detections = List.generate(
         10,
-        (i) => makeDetection(label: 'obj$i', confidence: 0.5 + i * 0.01),
+        (i) => makeDetection(label: 'cay', confidence: 0.5 + i * 0.01),
       );
 
       await tester.pumpWidget(buildWidget(detections, maxItems: testMaxItems));
@@ -99,7 +99,8 @@ void main() {
 
     testWidgets('long label does not cause overflow', (tester) async {
       await tester.pumpWidget(buildWidget([
-        makeDetection(label: 'very_long_label_that_might_overflow_the_box'),
+        makeDetection(
+            label: 'cau_thang_rat_dai_va_to_lon_de_kiem_tra_overflow'),
       ]));
 
       expect(tester.takeException(), isNull);
@@ -135,7 +136,7 @@ void main() {
           top: 0.2,
           width: 0.4,
           height: 0.5,
-          label: 'person',
+          label: 'nguoi_di_bo',
           trackId: 1,
           missedFrames: 0,
         ),
@@ -166,7 +167,7 @@ void main() {
           top: 0.1,
           width: 0.3,
           height: 0.4,
-          label: 'person',
+          label: 'nguoi_di_bo',
           trackId: 1,
           missedFrames: 0,
         ),
@@ -197,7 +198,7 @@ void main() {
           top: 0.1,
           width: 0.3,
           height: 0.4,
-          label: 'x',
+          label: 'ban',
           trackId: 1,
           missedFrames: 0,
         ),
@@ -208,7 +209,7 @@ void main() {
           top: 0.5,
           width: 0.2,
           height: 0.2,
-          label: 'y',
+          label: 'cay',
           trackId: 2,
           missedFrames: 0,
         ),
@@ -227,7 +228,7 @@ void main() {
 
   group('BoxTracker', () {
     DetectionObject make({
-      String label = 'person',
+      String label = 'nguoi_di_bo',
       double left = 0.1,
       double top = 0.1,
       double w = 0.3,
@@ -246,17 +247,17 @@ void main() {
 
     test('new detection added to tracked list', () {
       final tracker = BoxTracker();
-      final result = tracker.update([make(label: 'person')]);
+      final result = tracker.update([make(label: 'nguoi_di_bo')]);
 
       expect(result.length, 1);
-      expect(result[0].label, 'person');
+      expect(result[0].label, 'nguoi_di_bo');
     });
 
     test('same object detected twice remains single track', () {
       final tracker = BoxTracker();
-      tracker.update([make(label: 'person', left: 0.1)]);
+      tracker.update([make(label: 'nguoi_di_bo', left: 0.1)]);
       // The position shifts slightly but is still treated as the same track via IoU.
-      final result = tracker.update([make(label: 'person', left: 0.12)]);
+      final result = tracker.update([make(label: 'nguoi_di_bo', left: 0.12)]);
 
       expect(result.length, 1);
     });
@@ -265,7 +266,7 @@ void main() {
       final tracker = BoxTracker();
       final start = DateTime(2026, 1, 1, 12, 0, 0);
 
-      tracker.update([make(label: 'person')], now: start);
+      tracker.update([make(label: 'nguoi_di_bo')], now: start);
       final result = tracker.update(
         [],
         now: start.add(const Duration(milliseconds: 450)),
@@ -277,12 +278,12 @@ void main() {
     test('two different objects are tracked independently', () {
       final tracker = BoxTracker();
       final result = tracker.update([
-        make(label: 'person', left: 0.1),
-        make(label: 'bicycle', left: 0.6),
+        make(label: 'nguoi_di_bo', left: 0.1),
+        make(label: 'xe', left: 0.6),
       ]);
 
       expect(result.length, 2);
-      expect(result.map((b) => b.label).toSet(), {'person', 'bicycle'});
+      expect(result.map((b) => b.label).toSet(), {'nguoi_di_bo', 'xe'});
     });
 
     test('clear() empties the tracker', () {
@@ -294,7 +295,7 @@ void main() {
 
     test('new track starts with missedFrames = 0', () {
       final tracker = BoxTracker();
-      final result = tracker.update([make(label: 'y')]);
+      final result = tracker.update([make(label: 'cay')]);
 
       expect(result.single.missedFrames, 0);
     });
@@ -303,12 +304,12 @@ void main() {
       final tracker = BoxTracker();
       final start = DateTime(2026, 1, 1, 12, 0, 0);
 
-      tracker.update([make(label: 'z')], now: start);
+      tracker.update([make(label: 'ghe')], now: start);
       // One frame without detections sets missedFrames = 1.
       tracker.update([], now: start.add(const Duration(milliseconds: 100)));
       // When the detection returns, missedFrames resets to 0.
       final result = tracker.update(
-        [make(label: 'z', left: 0.11)],
+        [make(label: 'ghe', left: 0.11)],
         now: start.add(const Duration(milliseconds: 200)),
       );
 

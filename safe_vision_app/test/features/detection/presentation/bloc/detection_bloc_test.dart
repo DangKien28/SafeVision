@@ -37,7 +37,7 @@ CameraFrame fakeCameraFrame() => CameraFrame(
     );
 
 DetectionObject _safeObject({
-  String label = 'person',
+  String label = 'nguoi_di_bo',
   double confidence = 0.8,
 }) =>
     DetectionObject(
@@ -52,7 +52,7 @@ DetectionObject _safeObject({
     );
 
 DetectionObject _dangerousObject({
-  String label = 'person',
+  String label = 'nguoi_di_bo',
   double confidence = 0.9,
 }) =>
     DetectionObject(

@@ -26,7 +26,7 @@ void main() {
 
     test('DetectionSuccess equality with same detections and timestamp', () {
       const obj = DetectionObject(
-        label: 'car',
+        label: 'xe',
         confidence: 0.9,
         boundingBox: BoundingBox(left: 0, top: 0, width: 0.1, height: 0.1),
       );

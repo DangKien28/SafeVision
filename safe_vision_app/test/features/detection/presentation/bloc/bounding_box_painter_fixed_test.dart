@@ -23,7 +23,7 @@ void main() {
             top: 0.1,
             width: 0.3,
             height: 0.4,
-            label: 'person',
+            label: 'nguoi_di_bo',
             trackId: 1,
             missedFrames: 0,
           ),
@@ -32,7 +32,7 @@ void main() {
             top: 0.2,
             width: 0.2,
             height: 0.3,
-            label: 'bicycle',
+            label: 'xe',
             trackId: 2,
             missedFrames: 0,
           ),
@@ -40,7 +40,7 @@ void main() {
         version: 1,
       );
 
-      // Paint once to populate the TextPainter cache with 'person' and 'bicycle'.
+      // Paint once to populate the TextPainter cache with 'nguoi_di_bo' and 'xe'.
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -64,7 +64,7 @@ void main() {
           top: 0.1,
           width: 0.04,
           height: 0.04,
-          label: 'label_$i',
+          label: 'cay',
           trackId: i,
           missedFrames: 0,
         ),
@@ -95,7 +95,7 @@ void main() {
           top: 0.1,
           width: 0.3,
           height: 0.4,
-          label: 'person',
+          label: 'nguoi_di_bo',
           trackId: 1,
           missedFrames: 0,
         ),
@@ -106,7 +106,7 @@ void main() {
           top: 0.5,
           width: 0.2,
           height: 0.2,
-          label: 'bicycle',
+          label: 'xe',
           trackId: 2,
           missedFrames: 0,
         ),
@@ -139,7 +139,7 @@ void main() {
           top: 0.1,
           width: 0.3,
           height: 0.4,
-          label: 'car',
+          label: 'xe',
           trackId: 1,
           missedFrames: 0,
         ),
@@ -148,7 +148,7 @@ void main() {
           top: 0.5,
           width: 0.2,
           height: 0.2,
-          label: 'truck',
+          label: 'balo',
           trackId: 2,
           missedFrames: 2,
         ),
@@ -174,7 +174,7 @@ void main() {
           top: 0.1,
           width: 0.3,
           height: 0.4,
-          label: 'person',
+          label: 'nguoi_di_bo',
           trackId: 1,
           missedFrames: 0,
         ),
@@ -193,7 +193,7 @@ void main() {
           top: 0.1,
           width: 0.3,
           height: 0.4,
-          label: 'person',
+          label: 'nguoi_di_bo',
           trackId: 1,
           missedFrames: 0,
         ),
@@ -227,7 +227,7 @@ void main() {
 
   group('Bộ đếm version của BoxTracker', () {
     DetectionObject makeDetection({
-      String label = 'person',
+      String label = 'nguoi_di_bo',
       double left = 0.1,
       double w = 0.2,
       double h = 0.3,
@@ -286,7 +286,7 @@ void main() {
             top: 0.3,
             width: 0.4,
             height: 0.4,
-            label: 'car',
+            label: 'xe',
             trackId: 1,
             missedFrames: 0,
           )
@@ -311,7 +311,7 @@ void main() {
             top: -0.1,
             width: 1.5,
             height: 1.5,
-            label: 'overflow',
+            label: 'cay',
             trackId: 1,
             missedFrames: 0,
           ),

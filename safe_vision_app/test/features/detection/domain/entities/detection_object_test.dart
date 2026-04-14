@@ -96,18 +96,18 @@ void main() {
 
     test('stores label, confidence, and boundingBox', () {
       const obj = DetectionObject(
-        label: 'car',
+        label: 'xe',
         confidence: 0.95,
         boundingBox: smallBox,
       );
-      expect(obj.label, 'car');
+      expect(obj.label, 'xe');
       expect(obj.confidence, 0.95);
       expect(obj.boundingBox, smallBox);
     });
 
     test('voiceWarning builds correct sentence', () {
       const obj = DetectionObject(
-        label: 'car',
+        label: 'xe',
         confidence: 0.95,
         boundingBox: leftBox,
       );
@@ -117,7 +117,7 @@ void main() {
 
     test('isDangerous returns true for large area', () {
       const obj = DetectionObject(
-        label: 'car',
+        label: 'xe',
         confidence: 0.95,
         boundingBox: largeBox,
       );
@@ -126,7 +126,7 @@ void main() {
 
     test('isDangerous returns false for small area', () {
       const obj = DetectionObject(
-        label: 'car',
+        label: 'xe',
         confidence: 0.95,
         boundingBox: smallBox,
       );
@@ -135,17 +135,17 @@ void main() {
 
     test('Equatable equality', () {
       const obj1 = DetectionObject(
-        label: 'car',
+        label: 'xe',
         confidence: 0.95,
         boundingBox: smallBox,
       );
       const obj2 = DetectionObject(
-        label: 'car',
+        label: 'xe',
         confidence: 0.95,
         boundingBox: smallBox,
       );
       const obj3 = DetectionObject(
-        label: 'dog',
+        label: 'balo',
         confidence: 0.95,
         boundingBox: smallBox,
       );
@@ -155,11 +155,11 @@ void main() {
 
     test('props contains label, confidence, and boundingBox', () {
       const obj = DetectionObject(
-        label: 'car',
+        label: 'xe',
         confidence: 0.95,
         boundingBox: smallBox,
       );
-      expect(obj.props, ['car', 0.95, smallBox]);
+      expect(obj.props, ['xe', 0.95, smallBox]);
     });
   });
 }

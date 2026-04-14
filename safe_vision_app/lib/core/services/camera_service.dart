@@ -10,12 +10,6 @@ import '../error/exceptions.dart' as ex;
 import '../utils/perf_monitor.dart';
 export '../models/camera_frame.dart';
 
-/// Manages camera lifecycle and emits frames using a single-flight latest-frame
-/// strategy.
-///
-/// While inference is running, at most one pending frame is retained. Busy
-/// frames are refreshed at a capped rate so the app avoids repeated full-frame
-/// byte copies when inference is far slower than the camera stream.
 class CameraService {
   CameraController? _controller;
   List<CameraDescription> _cameras = const [];

@@ -90,7 +90,7 @@ void main() {
     test('isolateBusy is reset after successful inference', () async {
       datasource.resultFactory = () => [
             {
-              'label': 'person',
+              'label': 'nguoi_di_bo',
               'confidence': 0.85,
               'left': 0.1,
               'top': 0.1,
@@ -127,7 +127,7 @@ void main() {
       datasource.shouldThrow = false;
       datasource.resultFactory = () => [
             {
-              'label': 'bicycle',
+              'label': 'xe',
               'confidence': 0.7,
               'left': 0.2,
               'top': 0.2,
@@ -141,7 +141,7 @@ void main() {
 
       expect(results, isNotEmpty,
           reason: 'After exception, subsequent inference must still run.');
-      expect(results.first['label'], 'bicycle');
+      expect(results.first['label'], 'xe');
       expect(datasource.inferenceCallCount, equals(2));
     });
 
@@ -187,7 +187,7 @@ void main() {
       await datasource.loadModel();
       datasource.resultFactory = () => [
             {
-              'label': 'car',
+              'label': 'xe',
               'confidence': 0.9,
               'left': 0.0,
               'top': 0.0,
@@ -200,7 +200,7 @@ void main() {
           await datasource.runInference(fakeCameraFrame(), rotationDegrees: 90);
 
       expect(result.length, equals(1));
-      expect(result.first['label'], 'car');
+      expect(result.first['label'], 'xe');
     });
 
     test('after closeModel, inference returns []', () async {
