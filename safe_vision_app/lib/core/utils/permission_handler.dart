@@ -1,5 +1,9 @@
-import 'package:permission_handler/permission_handler.dart'
-    as ph show Permission, PermissionStatus, openAppSettings, PermissionActions, PermissionStatusGetters;
+import 'package:permission_handler/permission_handler.dart' as ph
+    show
+        Permission,
+        openAppSettings,
+        PermissionActions,
+        PermissionStatusGetters;
 
 import '../error/exceptions.dart';
 

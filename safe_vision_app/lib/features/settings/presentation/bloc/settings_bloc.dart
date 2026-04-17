@@ -1,13 +1,13 @@
 import 'package:bloc/bloc.dart';
 import 'package:flutter/foundation.dart';
- 
+
 import '../../../../core/config/detection_config.dart';
 import '../../../../features/settings/domain/repositories/settings_repository.dart';
 import '../../../../features/tts/domain/usecases/configure_tts_usecase.dart';
 import '../../../../features/tts/domain/usecases/stop_speaking_usecase.dart';
 import 'settings_event.dart';
 import 'settings_state.dart';
- 
+
 class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
   SettingsBloc(
     this._repository,
@@ -22,53 +22,53 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     on<SettingsConfidencePanelToggled>(_onConfidencePanelToggled);
     on<SettingsTtsLanguageChanged>(_onTtsLanguageChanged);
   }
- 
+
   final SettingsRepository _repository;
   final ConfigureTtsUsecase _configureTts;
   final StopSpeakingUsecase _stopSpeaking;
   final DetectionConfig _detectionConfig;
- 
+
   // SafeVision is always Vietnamese — language is never actually changed.
   static const _forcedLanguage = 'vi-VN';
- 
+
   // ── Handlers ───────────────────────────────────────────────────────────────
- 
+
   Future<void> _onLoaded(
     SettingsLoaded event,
     Emitter<SettingsState> emit,
   ) async {
     emit(state.copyWith(isLoading: true));
     try {
-      final speechRate          = await _repository.getSpeechRate();
+      final speechRate = await _repository.getSpeechRate();
       final confidenceThreshold = await _repository.getConfidenceThreshold();
-      final voiceEnabled        = await _repository.getVoiceEnabled();
+      final voiceEnabled = await _repository.getVoiceEnabled();
       final showConfidencePanel = await _repository.getShowConfidencePanel();
-      final ttsLanguage         = await _repository.getTtsLanguage();
- 
+      final ttsLanguage = await _repository.getTtsLanguage();
+
       _detectionConfig.setConfidenceThreshold(confidenceThreshold);
- 
+
       // Re-configure TTS engine so it honours the persisted settings.
       await _configureTts(
-        language:   ttsLanguage.isNotEmpty ? ttsLanguage : _forcedLanguage,
+        language: ttsLanguage.isNotEmpty ? ttsLanguage : _forcedLanguage,
         speechRate: speechRate,
-        pitch:      null,
-        volume:     null,
+        pitch: null,
+        volume: null,
       );
- 
+
       emit(state.copyWith(
-        speechRate:          speechRate,
+        speechRate: speechRate,
         confidenceThreshold: confidenceThreshold,
-        voiceEnabled:        voiceEnabled,
+        voiceEnabled: voiceEnabled,
         showConfidencePanel: showConfidencePanel,
-        ttsLanguage:         ttsLanguage.isNotEmpty ? ttsLanguage : _forcedLanguage,
-        isLoading:           false,
+        ttsLanguage: ttsLanguage.isNotEmpty ? ttsLanguage : _forcedLanguage,
+        isLoading: false,
       ));
     } catch (e) {
       debugPrint('[SettingsBloc] load error: $e');
       emit(state.copyWith(isLoading: false));
     }
   }
- 
+
   Future<void> _onSpeechRateChanged(
     SettingsSpeechRateChanged event,
     Emitter<SettingsState> emit,
@@ -77,14 +77,14 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     // BUG FIX (SV-006): always pass BOTH rate AND language to configure().
     // Passing only rate resets the language to the engine default.
     await _configureTts(
-      language:   _forcedLanguage,
+      language: _forcedLanguage,
       speechRate: event.rate,
-      pitch:      null,
-      volume:     null,
+      pitch: null,
+      volume: null,
     );
     emit(state.copyWith(speechRate: event.rate));
   }
- 
+
   Future<void> _onConfidenceChanged(
     SettingsConfidenceChanged event,
     Emitter<SettingsState> emit,
@@ -95,7 +95,7 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     await _repository.setConfidenceThreshold(event.threshold);
     emit(state.copyWith(confidenceThreshold: event.threshold));
   }
- 
+
   Future<void> _onVoiceToggled(
     SettingsVoiceToggled event,
     Emitter<SettingsState> emit,
@@ -104,7 +104,7 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     if (!event.enabled) await _stopSpeaking();
     emit(state.copyWith(voiceEnabled: event.enabled));
   }
- 
+
   Future<void> _onConfidencePanelToggled(
     SettingsConfidencePanelToggled event,
     Emitter<SettingsState> emit,
@@ -112,7 +112,7 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     await _repository.setShowConfidencePanel(event.show);
     emit(state.copyWith(showConfidencePanel: event.show));
   }
- 
+
   /// BUG FIX (SV-006): language change MUST forward the current speechRate.
   ///
   /// Previous implementation called `_configureTts(language: 'vi-VN')` without
@@ -122,21 +122,20 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     SettingsTtsLanguageChanged event,
     Emitter<SettingsState> emit,
   ) async {
-    emit(state.copyWith(isLoading: true));
     try {
       await _repository.setTtsLanguage(_forcedLanguage);
       // Pass current speechRate so the engine never resets it.
       await _configureTts(
-        language:   _forcedLanguage,
+        language: _forcedLanguage,
         speechRate: state.speechRate,
-        pitch:      null,
-        volume:     null,
+        pitch: null,
+        volume: null,
       );
-      emit(state.copyWith(ttsLanguage: _forcedLanguage, isLoading: false));
+      if (state.ttsLanguage != _forcedLanguage) {
+        emit(state.copyWith(ttsLanguage: _forcedLanguage));
+      }
     } catch (e) {
       debugPrint('[SettingsBloc] language change error: $e');
-      emit(state.copyWith(isLoading: false));
     }
   }
 }
- 

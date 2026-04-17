@@ -98,8 +98,8 @@ class BoxTracker {
     );
 
     // ── 2. Greedy IoU matching ──────────────────────────────────────────────
-    final matched = <int>{};        // detection indices
-    final updatedTracks = <int>{};  // track IDs
+    final matched = <int>{}; // detection indices
+    final updatedTracks = <int>{}; // track IDs
 
     for (final entry in _tracks.entries) {
       final track = entry.value;
@@ -174,18 +174,18 @@ class _Track {
     required BoundingBox box,
     required this.label,
     required this.firstSeen,
-    required DateTime lastSeen,
+    required this.lastSeen, // FIX 13: was `required DateTime lastSeen`
   })  : _left = box.left,
         _top = box.top,
         _width = box.width,
         _height = box.height,
-        lastSeen = lastSeen,
         missedFrames = 0;
+  // FIX 13: removed `lastSeen = lastSeen,` from init list
 
   final int id;
   final String label;
   final DateTime firstSeen;
-  DateTime lastSeen;
+  DateTime lastSeen; // FIX 13: must remain mutable (updated in smooth())
   int missedFrames;
 
   double _left;
@@ -206,9 +206,9 @@ class _Track {
 
   /// Exponential smoothing toward the new detection position.
   void smooth(BoundingBox detected, DateTime now) {
-    _left   = _alpha * detected.left   + (1 - _alpha) * _left;
-    _top    = _alpha * detected.top    + (1 - _alpha) * _top;
-    _width  = _alpha * detected.width  + (1 - _alpha) * _width;
+    _left = _alpha * detected.left + (1 - _alpha) * _left;
+    _top = _alpha * detected.top + (1 - _alpha) * _top;
+    _width = _alpha * detected.width + (1 - _alpha) * _width;
     _height = _alpha * detected.height + (1 - _alpha) * _height;
     lastSeen = now;
   }
@@ -272,7 +272,31 @@ class BoundingBoxPainter extends CustomPainter {
   @override
   bool shouldRepaint(BoundingBoxPainter oldDelegate) =>
       version != oldDelegate.version ||
-      mirrorHorizontal != oldDelegate.mirrorHorizontal;
+      mirrorHorizontal != oldDelegate.mirrorHorizontal ||
+      (version == 0 &&
+          oldDelegate.version == 0 &&
+          !_sameBoxes(oldDelegate.boxes));
+
+  bool _sameBoxes(List<SmoothedBox> otherBoxes) {
+    if (identical(boxes, otherBoxes)) return true;
+    if (boxes.length != otherBoxes.length) return false;
+
+    for (var i = 0; i < boxes.length; i++) {
+      final current = boxes[i];
+      final other = otherBoxes[i];
+      if (current.left != other.left ||
+          current.top != other.top ||
+          current.width != other.width ||
+          current.height != other.height ||
+          current.label != other.label ||
+          current.trackId != other.trackId ||
+          current.missedFrames != other.missedFrames) {
+        return false;
+      }
+    }
+
+    return true;
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -298,9 +322,9 @@ class BoundingBoxPainter extends CustomPainter {
 
   void _paintBox(Canvas canvas, Size size, SmoothedBox box) {
     // Clamp to visible area — prevents out-of-bounds boxes from crashing.
-    final left   = (box.left.clamp(0.0, 1.0) * size.width);
-    final top    = (box.top.clamp(0.0, 1.0) * size.height);
-    final right  = ((box.left + box.width).clamp(0.0, 1.0) * size.width);
+    final left = (box.left.clamp(0.0, 1.0) * size.width);
+    final top = (box.top.clamp(0.0, 1.0) * size.height);
+    final right = ((box.left + box.width).clamp(0.0, 1.0) * size.width);
     final bottom = ((box.top + box.height).clamp(0.0, 1.0) * size.height);
 
     final rectW = right - left;
@@ -339,7 +363,8 @@ class BoundingBoxPainter extends CustomPainter {
 
     canvas.drawRect(
       badgeRect,
-      Paint()..color = color.withValues(alpha: (opacity * 0.85).clamp(0.0, 1.0)),
+      Paint()
+        ..color = color.withValues(alpha: (opacity * 0.85).clamp(0.0, 1.0)),
     );
 
     tp.paint(canvas, Offset(left + 6, top - labelH + 3));

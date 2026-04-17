@@ -23,8 +23,7 @@ class SettingsPage extends StatelessWidget {
       providers: [
         BlocProvider<SettingsBloc>(
           create: (_) =>
-              SettingsBloc(sl(), sl(), sl(), sl())
-                ..add(const SettingsLoaded()),
+              SettingsBloc(sl(), sl(), sl(), sl())..add(const SettingsLoaded()),
         ),
         BlocProvider<TtsBloc>(create: (_) => sl<TtsBloc>()),
       ],
@@ -193,8 +192,7 @@ class _ConfidenceSlider extends StatelessWidget {
             Row(children: [
               const Icon(Icons.tune, size: 24),
               const SizedBox(width: 8),
-              Text(
-                  'Ngưỡng nhận diện: ${(threshold * 100).round()}%',
+              Text('Ngưỡng nhận diện: ${(threshold * 100).round()}%',
                   style: const TextStyle(fontSize: 16)),
             ]),
             Slider(

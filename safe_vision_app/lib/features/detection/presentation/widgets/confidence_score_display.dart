@@ -30,7 +30,7 @@ class ConfidenceScoreDisplay extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.65),
+        color: Colors.black.withValues(alpha: 0.65),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -61,9 +61,9 @@ class _DetectionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label      = detection.label;
+    final label = detection.label;
     final confidence = detection.confidence;
-    final pct        = (confidence * 100).round();
+    final pct = (confidence * 100).round();
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),

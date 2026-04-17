@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -140,11 +139,6 @@ class CameraService {
     _isProcessingFrame = false;
   }
 
-  /// Releases the camera hardware synchronously.
-  ///
-  /// BUG FIX 2: stores the async disposal Future in [_disposeFuture] so the
-  /// GC does not race with OS teardown.  Widget code calls [dispose] and
-  /// moves on; the OS handle is released asynchronously without leaking.
   void dispose() {
     _isProcessingFrame = false;
     _disposeFuture = _controller?.dispose();

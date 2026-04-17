@@ -4,7 +4,6 @@ import '../../../../core/utils/permission_handler.dart';
 import '../../../../core/error/exceptions.dart';
 import '../detection/presentation/pages/detection_page.dart';
 
-
 /// Splash / permission-gate page.
 ///
 /// Shown at app start.  Requests camera permission then routes to

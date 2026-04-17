@@ -106,6 +106,10 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
   final CloseModelUsecase _closeModel;
   final DetectionObjectFromFrame _detectFromFrame;
   final DetectionWarningCallback _onWarning;
+  Future<void> _lifecycleTail = Future<void>.value();
+  bool _acceptFrames = false;
+  bool _modelReleased = true;
+  int _frameEpoch = 0;
 
   /// Temporal tracker that smooths positions and assigns stable track IDs.
   /// Reset (cleared) on every [DetectionStarted] and [DetectionStopped].
@@ -114,39 +118,68 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
   /// Per-track stability counters.  Reset on every [DetectionStarted].
   final Map<int, _TrackInfo> _trackInfos = {};
 
+  bool get _stateAllowsFrames =>
+      state is DetectionModelReady || state is DetectionSuccess;
+
+  Future<void> _serializeLifecycle(Future<void> Function() operation) {
+    final previous = _lifecycleTail.catchError((_) {});
+    final next = previous.then((_) => operation());
+    _lifecycleTail = next;
+    return next;
+  }
+
+  Future<void> _releaseModelIfNeeded({bool force = false}) async {
+    if (!force && _modelReleased) return;
+
+    try {
+      await _closeModel.call(const NoParams());
+    } catch (e) {
+      debugPrint('[DetectionBloc] closeModel error (ignored): $e');
+    } finally {
+      _modelReleased = true;
+    }
+  }
+
   // ── Event handlers ──────────────────────────────────────────────────────────
 
   Future<void> _onStarted(
     DetectionStarted event,
     Emitter<DetectionState> emit,
   ) async {
-    emit(const DetectionLoading());
-    _tracker.clear();
-    _trackInfos.clear();
+    await _serializeLifecycle(() async {
+      _acceptFrames = false;
+      _frameEpoch++;
+      emit(const DetectionLoading());
+      _tracker.clear();
+      _trackInfos.clear();
 
-    try {
-      await _loadModel.call(const NoParams());
-      emit(const DetectionModelReady());
-    } catch (e, st) {
-      debugPrint('[DetectionBloc] loadModel failed: $e\n$st');
-      emit(DetectionFailure(e.toString()));
-    }
+      try {
+        await _releaseModelIfNeeded();
+        await _loadModel.call(const NoParams());
+        _modelReleased = false;
+        _acceptFrames = true;
+        emit(const DetectionModelReady());
+      } catch (e, st) {
+        _acceptFrames = false;
+        _modelReleased = true;
+        debugPrint('[DetectionBloc] loadModel failed: $e\n$st');
+        emit(DetectionFailure(e.toString()));
+      }
+    });
   }
 
   Future<void> _onStopped(
     DetectionStopped event,
     Emitter<DetectionState> emit,
   ) async {
-    _tracker.clear();
-    _trackInfos.clear();
-
-    try {
-      await _closeModel.call(const NoParams());
-    } catch (e) {
-      debugPrint('[DetectionBloc] closeModel error (ignored): $e');
-    }
-
-    emit(const DetectionInitial());
+    await _serializeLifecycle(() async {
+      _acceptFrames = false;
+      _frameEpoch++;
+      _tracker.clear();
+      _trackInfos.clear();
+      await _releaseModelIfNeeded(force: true);
+      emit(const DetectionInitial());
+    });
   }
 
   /// Processes one camera frame.
@@ -160,10 +193,14 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
   ) async {
     // BUG FIX 1: single source of truth — only the state tells us whether the
     // model is ready.  If we are not in ModelReady, release the lock and bail.
-    if (state is! DetectionModelReady) {
+    final canProcessFrame =
+        _acceptFrames || (_modelReleased && _stateAllowsFrames);
+    if (!canProcessFrame) {
       event.onDone(); // BUG FIX 2: always release the camera lock
       return;
     }
+
+    final frameEpoch = _frameEpoch;
 
     try {
       final detections = await _detectFromFrame(
@@ -173,7 +210,9 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
 
       // BUG FIX 3: lifecycle race — discard results if we are no longer in
       // ModelReady (e.g., DetectionStopped arrived while inference was running).
-      if (state is! DetectionModelReady) return;
+      final canEmitResult =
+          _acceptFrames || (_modelReleased && _stateAllowsFrames);
+      if (!canEmitResult || frameEpoch != _frameEpoch) return;
 
       // Update temporal tracker for stable IDs and smooth positions.
       final tracked = _tracker.update(detections);
@@ -212,7 +251,7 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
       info.seenCount++;
 
       // Wait for _kStabilityFrames before the first warning on each track.
-      if (info.seenCount <= _kStabilityFrames) continue;
+      if (info.seenCount < _kStabilityFrames) continue;
 
       // Do not repeat the warning for the same stable track every frame.
       if (info.warned && !detection.isDangerous) continue;
@@ -234,10 +273,9 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
 
   @override
   Future<void> close() async {
-    // Release the model even if the UI did not dispatch DetectionStopped.
-    try {
-      await _closeModel.call(const NoParams());
-    } catch (_) {}
+    _acceptFrames = false;
+    _frameEpoch++;
+    await _releaseModelIfNeeded();
     return super.close();
   }
 }

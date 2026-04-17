@@ -42,8 +42,8 @@ class LetterboxResult {
 }
 
 /// Simple axis-aligned bounding box returned by [ImageConverter.unLetterboxBox].
-class _UnletterboxedBox {
-  const _UnletterboxedBox({
+class UnletterboxedBox {
+  const UnletterboxedBox({
     required this.left,
     required this.top,
     required this.width,
@@ -135,8 +135,7 @@ abstract class ImageConverter {
     for (int y = 0; y < scaledH; y++) {
       for (int x = 0; x < scaledW; x++) {
         final pixel = resized.getPixel(x, y);
-        final dstIdx =
-            ((padPixTop + y) * inputSize + (padPixLeft + x)) * 3;
+        final dstIdx = ((padPixTop + y) * inputSize + (padPixLeft + x)) * 3;
         tensor[dstIdx + 0] = pixel.r / 255.0;
         tensor[dstIdx + 1] = pixel.g / 255.0;
         tensor[dstIdx + 2] = pixel.b / 255.0;
@@ -160,7 +159,7 @@ abstract class ImageConverter {
   ///
   /// When [coordinatesAreNormalized] is true the inputs (cx, cy, bw, bh) are
   /// already normalised to [inputSize]; otherwise they are raw pixel values.
-  static _UnletterboxedBox unLetterboxBox({
+  static UnletterboxedBox unLetterboxBox({
     required double cx,
     required double cy,
     required double bw,
@@ -190,12 +189,12 @@ abstract class ImageConverter {
     final y1 = (ncy + nbh / 2 - padTop) / effectiveH;
 
     // Clamp to [0, 1].
-    final left   = x0.clamp(0.0, 1.0);
-    final top    = y0.clamp(0.0, 1.0);
-    final right  = x1.clamp(0.0, 1.0);
+    final left = x0.clamp(0.0, 1.0);
+    final top = y0.clamp(0.0, 1.0);
+    final right = x1.clamp(0.0, 1.0);
     final bottom = y1.clamp(0.0, 1.0);
 
-    return _UnletterboxedBox(
+    return UnletterboxedBox(
       left: left,
       top: top,
       width: (right - left).clamp(0.0, 1.0),
@@ -246,7 +245,8 @@ abstract class ImageConverter {
         final vVal = vPlane[uvIdx] - 128;
 
         final r = (yVal + 1.370705 * vVal).round().clamp(0, 255);
-        final g = (yVal - 0.337633 * uVal - 0.698001 * vVal).round().clamp(0, 255);
+        final g =
+            (yVal - 0.337633 * uVal - 0.698001 * vVal).round().clamp(0, 255);
         final b = (yVal + 1.732446 * uVal).round().clamp(0, 255);
 
         image.setPixelRgb(w, h, r, g, b);
@@ -271,6 +271,3 @@ abstract class ImageConverter {
     }
   }
 }
-
-// Re-export the box type under a cleaner alias used by callers.
-typedef UnletterboxedBox = _UnletterboxedBox;

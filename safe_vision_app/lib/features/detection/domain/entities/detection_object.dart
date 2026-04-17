@@ -19,11 +19,11 @@ class BoundingBox extends Equatable {
   final double width;
   final double height;
 
-  double get right  => left + width;
+  double get right => left + width;
   double get bottom => top + height;
   double get centerX => left + width / 2;
   double get centerY => top + height / 2;
-  double get area   => width * height;
+  double get area => width * height;
 
   /// Horizontal zone label for TTS position announcements.
   String get horizontalPosition {

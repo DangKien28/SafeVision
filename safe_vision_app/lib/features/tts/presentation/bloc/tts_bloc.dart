@@ -1,6 +1,5 @@
 import 'dart:async';
 
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -11,6 +10,13 @@ import '../../../../features/tts/domain/usecases/speak_warning_usecase.dart';
 import '../../../../features/tts/domain/usecases/stop_speaking_usecase.dart';
 import 'tts_event.dart';
 import 'tts_state.dart';
+
+class _TtsErrorReceived extends TtsEvent {
+  const _TtsErrorReceived(this.message);
+  final String message;
+  @override
+  List<Object?> get props => [message];
+}
 
 class TtsBloc extends Bloc<TtsEvent, TtsState> {
   TtsBloc({
@@ -27,6 +33,8 @@ class TtsBloc extends Bloc<TtsEvent, TtsState> {
     on<TtsSpeak>(_onSpeak);
     on<TtsStop>(_onStop);
     on<TtsPause>(_onPause);
+    // FIX 2: register handler for the private error event
+    on<_TtsErrorReceived>(_onErrorReceived);
 
     // Optional stream from the native engine so the bloc can mirror the real
     // playback state (started / stopped by the OS).
@@ -85,6 +93,10 @@ class TtsBloc extends Bloc<TtsEvent, TtsState> {
     emit(const TtsPaused());
   }
 
+  void _onErrorReceived(_TtsErrorReceived event, Emitter<TtsState> emit) {
+    emit(TtsError(event.message));
+  }
+
   // ── Playback stream ────────────────────────────────────────────────────────
 
   void _onPlaybackUpdate(TtsPlaybackUpdate update) {
@@ -96,8 +108,11 @@ class TtsBloc extends Bloc<TtsEvent, TtsState> {
         add(const TtsStop());
         break;
       case TtsPlaybackStatus.error:
-        // Don't re-dispatch; just emit the error directly.
-        if (!isClosed) emit(TtsError(update.error ?? 'playback error'));
+        // FIX 2: route through a registered on<> handler instead of calling
+        // emit() directly (which is @visibleForTesting outside handlers).
+        if (!isClosed) {
+          add(_TtsErrorReceived(update.error ?? 'playback error'));
+        }
         break;
     }
   }

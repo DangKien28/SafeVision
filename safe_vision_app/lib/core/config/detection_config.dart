@@ -9,19 +9,17 @@ class DetectionConfig {
             confidenceThreshold ?? AppConstants.confidenceThreshold,
         _iouThreshold = iouThreshold ?? AppConstants.iouThreshold,
         _maxDetections = maxDetections ?? AppConstants.maxDetections;
- 
+
   double _confidenceThreshold;
   double _iouThreshold;
-  int    _maxDetections;
- 
+  int _maxDetections;
+
   double get confidenceThreshold => _confidenceThreshold;
-  double get iouThreshold        => _iouThreshold;
-  int    get maxDetections       => _maxDetections;
- 
+  double get iouThreshold => _iouThreshold;
+  int get maxDetections => _maxDetections;
+
   void setConfidenceThreshold(double v) =>
       _confidenceThreshold = v.clamp(0.01, 0.99);
-  void setIouThreshold(double v) =>
-      _iouThreshold = v.clamp(0.01, 0.99);
-  void setMaxDetections(int v) =>
-      _maxDetections = v.clamp(1, 100);
+  void setIouThreshold(double v) => _iouThreshold = v.clamp(0.01, 0.99);
+  void setMaxDetections(int v) => _maxDetections = v.clamp(1, 100);
 }

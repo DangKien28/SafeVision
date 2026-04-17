@@ -7,7 +7,7 @@ import '../repositories/detection_repository.dart';
 class CloseModelUsecase implements UseCase<void, NoParams> {
   CloseModelUsecase(this._repository);
   final DetectionRepository _repository;
- 
+
   @override
   Future<void> call(NoParams params) => _repository.closeModel();
 }

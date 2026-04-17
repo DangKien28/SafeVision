@@ -14,18 +14,18 @@ abstract class AppTheme {
 
   // ── Colour constants ───────────────────────────────────────────────────────
 
-  static const Color _backgroundDark   = Color(0xFF0A0A0A);
-  static const Color _surfaceDark      = Color(0xFF1A1A1A);
-  static const Color _primary          = Color(0xFF00E5FF); // cyan accent
-  static const Color _onPrimary        = Color(0xFF000000);
-  static const Color _secondary        = Color(0xFF69FF47); // lime accent
-  static const Color _onSurface        = Color(0xFFEEEEEE);
-  static const Color _error            = Color(0xFFFF5252);
-  static const Color _warningOverlay   = Color(0xFFFF6D00);
+  static const Color _backgroundDark = Color(0xFF0A0A0A);
+  static const Color _surfaceDark = Color(0xFF1A1A1A);
+  static const Color _primary = Color(0xFF00E5FF); // cyan accent
+  static const Color _onPrimary = Color(0xFF000000);
+  static const Color _secondary = Color(0xFF69FF47); // lime accent
+  static const Color _onSurface = Color(0xFFEEEEEE);
+  static const Color _error = Color(0xFFFF5252);
+  static const Color _warningOverlay = Color(0xFFFF6D00);
 
   /// Exposed so the painter and overlay widgets can use the same colour.
-  static const Color warningColor  = _warningOverlay;
-  static const Color primaryColor  = _primary;
+  static const Color warningColor = _warningOverlay;
+  static const Color primaryColor = _primary;
   static const Color secondaryColor = _secondary;
 
   // ── Main theme ─────────────────────────────────────────────────────────────
@@ -38,13 +38,13 @@ abstract class AppTheme {
       scaffoldBackgroundColor: _backgroundDark,
 
       colorScheme: const ColorScheme.dark(
-        primary:    _primary,
-        onPrimary:  _onPrimary,
-        secondary:  _secondary,
-        surface:    _surfaceDark,
-        error:      _error,
-        onSurface:  _onSurface,
-        onError:    Colors.white,
+        primary: _primary,
+        onPrimary: _onPrimary,
+        secondary: _secondary,
+        surface: _surfaceDark,
+        error: _error,
+        onSurface: _onSurface,
+        onError: Colors.white,
       ),
 
       // ── AppBar ─────────────────────────────────────────────────────────────
@@ -107,37 +107,41 @@ abstract class AppTheme {
       // ── Typography ─────────────────────────────────────────────────────────
       // All text sizes are scaled up from Material defaults to ensure
       // legibility for users with low vision.
-      textTheme: base.textTheme.copyWith(
-        displayLarge:   _ts(57, FontWeight.bold),
-        displayMedium:  _ts(45, FontWeight.bold),
-        displaySmall:   _ts(36, FontWeight.bold),
-        headlineLarge:  _ts(32, FontWeight.bold),
-        headlineMedium: _ts(28, FontWeight.bold),
-        headlineSmall:  _ts(24, FontWeight.bold),
-        titleLarge:     _ts(22, FontWeight.w600),
-        titleMedium:    _ts(20, FontWeight.w600),
-        titleSmall:     _ts(18, FontWeight.w500),
-        bodyLarge:      _ts(18, FontWeight.normal),
-        bodyMedium:     _ts(16, FontWeight.normal),
-        bodySmall:      _ts(14, FontWeight.normal),
-        labelLarge:     _ts(24, FontWeight.bold),   // button label
-        labelMedium:    _ts(18, FontWeight.w600),
-        labelSmall:     _ts(14, FontWeight.w500),
-      ).apply(
-        bodyColor:    _onSurface,
-        displayColor: _onSurface,
-      ),
+      textTheme: base.textTheme
+          .copyWith(
+            displayLarge: _ts(57, FontWeight.bold),
+            displayMedium: _ts(45, FontWeight.bold),
+            displaySmall: _ts(36, FontWeight.bold),
+            headlineLarge: _ts(32, FontWeight.bold),
+            headlineMedium: _ts(28, FontWeight.bold),
+            headlineSmall: _ts(24, FontWeight.bold),
+            titleLarge: _ts(22, FontWeight.w600),
+            titleMedium: _ts(20, FontWeight.w600),
+            titleSmall: _ts(18, FontWeight.w500),
+            bodyLarge: _ts(18, FontWeight.normal),
+            bodyMedium: _ts(16, FontWeight.normal),
+            bodySmall: _ts(14, FontWeight.normal),
+            labelLarge: _ts(24, FontWeight.bold), // button label
+            labelMedium: _ts(18, FontWeight.w600),
+            labelSmall: _ts(14, FontWeight.w500),
+          )
+          .apply(
+            bodyColor: _onSurface,
+            displayColor: _onSurface,
+          ),
 
       // ── Slider (confidence threshold, speech rate) ─────────────────────────
       sliderTheme: SliderThemeData(
-        activeTrackColor:   _primary,
-        inactiveTrackColor: _primary.withOpacity(0.25),
-        thumbColor:         _primary,
-        overlayColor:       _primary.withOpacity(0.20),
+        activeTrackColor: _primary,
+        // FIX 4a: withOpacity → withValues(alpha:)
+        inactiveTrackColor: _primary.withValues(alpha: 0.25),
+        thumbColor: _primary,
+        // FIX 4b: withOpacity → withValues(alpha:)
+        overlayColor: _primary.withValues(alpha: 0.20),
         trackHeight: 6,
-        thumbShape:   const RoundSliderThumbShape(enabledThumbRadius: 14),
+        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 14),
         overlayShape: const RoundSliderOverlayShape(overlayRadius: 28),
-        valueIndicatorColor:   _primary,
+        valueIndicatorColor: _primary,
         valueIndicatorTextStyle: const TextStyle(
           color: _onPrimary,
           fontSize: 16,
@@ -153,8 +157,10 @@ abstract class AppTheme {
         ),
         trackColor: WidgetStateProperty.resolveWith(
           (s) => s.contains(WidgetState.selected)
-              ? _primary.withOpacity(0.5)
-              : Colors.grey.withOpacity(0.3),
+              // FIX 4c: withOpacity → withValues(alpha:)
+              ? _primary.withValues(alpha: 0.5)
+              // FIX 4d: withOpacity → withValues(alpha:)
+              : Colors.grey.withValues(alpha: 0.3),
         ),
       ),
 

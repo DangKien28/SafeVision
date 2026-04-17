@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:isolate';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -89,7 +88,9 @@ class _IsolateState {
 ///      to main (handshake).
 ///   3. Both sides then use the exchanged ports for all future messages.
 ///      Main → isolate: _LoadRequest / _InferenceRequest
-///      Isolate → main: List<Map<String,dynamic>> / _DelegateFailedSignal / bool
+// FIX 12: angle brackets in doc comments must be wrapped in backticks to
+// prevent the Dart doc tooling from interpreting them as HTML tags.
+///      Isolate → main: `List<Map<String,dynamic>>` / _DelegateFailedSignal / bool
 void _inferenceEntryPoint(SendPort mainSendPort) {
   final state = _IsolateState();
 
@@ -161,7 +162,7 @@ InterpreterOptions _buildOptions(_DelegateMode mode, int numThreads) {
     case _DelegateMode.accelerated:
       try {
         // GpuDelegateV2 is constructed with default options to avoid
-        // Avoids dependency on GPU enum names that differ across tflite_flutter versions.
+        // dependency on GPU enum names that differ across tflite_flutter versions.
         opts.addDelegate(GpuDelegateV2());
       } catch (_) {
         // GPU unavailable on this device — XNNPack will be used instead.
@@ -278,50 +279,12 @@ double _iou(Map<String, dynamic> a, Map<String, dynamic> b) {
   return inter / ((ar - al) * (ab - at) + (br - bl) * (bb - bt) - inter);
 }
 
-// ── DetectionLocalDatasourceImpl ──────────────────────────────────────────────
-
-/// Runs YOLOv8 inference in a dedicated isolate with automatic GPU → CPU
-/// delegate downgrade.
-///
-/// ## Isolate communication — BUG FIX
-///
-/// ### The bug in v1 / v2
-///
-/// `ReceivePort` is a **single-subscription** stream.  Calling `.first`
-/// on it consumes the subscription **and closes the port**.  The previous
-/// implementation:
-///
-/// ```dart
-/// final bootstrapPort = ReceivePort();
-/// Isolate.spawn(_inferenceEntryPoint, bootstrapPort.sendPort);
-/// _toIsolate = await bootstrapPort.first as SendPort;  // closes bootstrapPort!
-/// bootstrapPort.close();
-///
-/// _fromIsolate = ReceivePort();  // NEW port — isolate knows nothing about it
-/// ```
-///
-/// After this, the isolate continued sending results to
-/// `bootstrapPort.sendPort` (its `mainSendPort`), but that port was already
-/// closed.  Every inference response was silently discarded.
-///
-/// ### The fix
-///
-/// We keep the original `ReceivePort` open and convert it to a **broadcast
-/// stream** (`asBroadcastStream()`).  This allows:
-///   - `.first` to read the handshake message without closing the stream.
-///   - All subsequent messages (inference results, delegate-failed signals)
-///     to arrive on the same port — which the isolate already knows about.
-///
-/// One-shot `StreamSubscription`s inside [runInference] pick up each reply
-/// without interfering with each other.
 class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
   DetectionLocalDatasourceImpl();
 
   Isolate? _isolate;
   SendPort? _toIsolate;
 
-  // BUG FIX: kept open for the full isolate lifetime; converted to broadcast
-  // so multiple one-shot listeners can attach without cancelling each other.
   ReceivePort? _rawPort;
   Stream<dynamic>? _fromIsolate;
 
@@ -441,8 +404,7 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
       }
     } else if (_delegateMode == _DelegateMode.cpu) {
       _consecutiveCpuFailures++;
-      if (_consecutiveCpuFailures >=
-          AppConstants.maxConsecutiveCpuFailures) {
+      if (_consecutiveCpuFailures >= AppConstants.maxConsecutiveCpuFailures) {
         debugPrint('[Datasource] CPU failed — disabling inference');
         _delegateMode = _DelegateMode.none;
         _killIsolate();
@@ -455,8 +417,6 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
   Future<void> _spawnAndLoad() async {
     _killIsolate();
 
-    // BUG FIX: create ONE port, keep it open, convert to broadcast stream.
-    // The isolate sends ALL messages to this port's sendPort (its mainSendPort).
     _rawPort = ReceivePort();
     // asBroadcastStream() lets multiple one-shot listeners attach over time
     // without each one cancelling the others.

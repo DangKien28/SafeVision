@@ -77,8 +77,8 @@ class _DetectionPageState extends State<DetectionPage>
     _ttsBloc = sl<TtsBloc>();
 
     _detectionBloc = DetectionBloc(
-      loadModel:       sl(),
-      closeModel:      sl(),
+      loadModel: sl(),
+      closeModel: sl(),
       detectFromFrame: sl(),
       // _onWarning is defined below with a direct reference to _ttsBloc.
       // No stub, no late wiring.
@@ -97,7 +97,7 @@ class _DetectionPageState extends State<DetectionPage>
         _detectionBloc.add(const DetectionStopped());
       case AppLifecycleState.resumed:
         if (_cameraReady) {
-          _camera.startImageStream(_onFrame);
+          _camera.startImageStream(onFrame: _onFrame);
         }
         _detectionBloc.add(const DetectionStarted());
       default:
@@ -128,7 +128,7 @@ class _DetectionPageState extends State<DetectionPage>
   Future<void> _startCamera() async {
     try {
       await _camera.initialize();
-      await _camera.startImageStream(_onFrame);
+      await _camera.startImageStream(onFrame: _onFrame);
       if (mounted) setState(() => _cameraReady = true);
     } catch (e) {
       if (mounted) setState(() => _errorMessage = e.toString());
@@ -161,7 +161,8 @@ class _DetectionPageState extends State<DetectionPage>
 
   Future<void> _triggerVibration() async {
     try {
-      if (await Vibration.hasVibrator() ?? false) {
+      // `hasVibrator()` resolves to a non-null bool in the current plugin.
+      if (await Vibration.hasVibrator()) {
         Vibration.vibrate(duration: 200);
       }
     } catch (_) {}
@@ -260,8 +261,7 @@ class _DetectionPageState extends State<DetectionPage>
               _detectionBloc.add(const DetectionStopped());
               Navigator.of(context).pop();
             },
-            onSettings: () =>
-                Navigator.of(context).pushNamed('/settings'),
+            onSettings: () => Navigator.of(context).pushNamed('/settings'),
           ),
         ),
       ],
@@ -289,8 +289,7 @@ class _LoadingOverlay extends StatelessWidget {
               state is DetectionLoading
                   ? 'Đang tải mô hình AI...'
                   : 'Đang khởi động camera...',
-              style:
-                  const TextStyle(color: Colors.white, fontSize: 18),
+              style: const TextStyle(color: Colors.white, fontSize: 18),
             ),
           ],
         ),
@@ -323,8 +322,7 @@ class _ErrorOverlay extends StatelessWidget {
             Text(
               message,
               textAlign: TextAlign.center,
-              style:
-                  const TextStyle(color: Colors.white70, fontSize: 16),
+              style: const TextStyle(color: Colors.white70, fontSize: 16),
             ),
             const SizedBox(height: 32),
             SizedBox(
@@ -369,7 +367,7 @@ class _ControlBar extends StatelessWidget {
     return SafeArea(
       child: Container(
         height: 88,
-        color: Colors.black.withOpacity(0.55),
+        color: Colors.black.withValues(alpha: 0.55),
         padding: const EdgeInsets.symmetric(horizontal: 24),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
