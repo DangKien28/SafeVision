@@ -1,19 +1,19 @@
-import 'dart:collection';
-
 import 'package:flutter/material.dart';
+
 import '../../../../core/constants/app_constants.dart';
+import '../../../../core/utils/voice_helper.dart';
 import '../../domain/entities/detection_object.dart';
 import '../../domain/entities/tracked_detection.dart';
 
-/// Position and state for an object after tracker smoothing.
-/// [missedFrames] is used to gradually reduce opacity when the object
-/// temporarily disappears.
-class SmoothedBox {
-  final double left, top, width, height;
-  final String label;
-  final int trackId;
-  final int missedFrames;
+// ── SmoothedBox ───────────────────────────────────────────────────────────────
 
+/// An immutable snapshot of a tracked bounding box ready for rendering.
+///
+/// Coordinates are normalised [0, 1] relative to the preview widget dimensions.
+/// [missedFrames] is the number of consecutive frames since the underlying
+/// detection was last matched to this track; the painter uses it to fade the
+/// box out smoothly before the track expires.
+class SmoothedBox {
   const SmoothedBox({
     required this.left,
     required this.top,
@@ -24,370 +24,392 @@ class SmoothedBox {
     required this.missedFrames,
   });
 
-  factory SmoothedBox.fromTrackedDetection(TrackedDetection tracked) {
-    final box = tracked.detection.boundingBox;
+  /// Converts an [ObjectTracker]-produced [TrackedDetection] into the
+  /// rendering-ready [SmoothedBox] format that [BoundingBoxPainter] expects.
+  factory SmoothedBox.fromTrackedDetection(TrackedDetection td) {
+    final box = td.detection.boundingBox;
     return SmoothedBox(
       left: box.left,
       top: box.top,
       width: box.width,
       height: box.height,
-      label: tracked.detection.label,
-      trackId: tracked.trackId,
-      missedFrames: tracked.missedFrames,
+      label: td.detection.label,
+      trackId: td.trackId,
+      missedFrames: td.missedFrames,
     );
   }
 
-  @override
-  bool operator ==(Object other) =>
-      other is SmoothedBox &&
-      left == other.left &&
-      top == other.top &&
-      width == other.width &&
-      height == other.height &&
-      label == other.label &&
-      trackId == other.trackId &&
-      missedFrames == other.missedFrames;
-
-  @override
-  int get hashCode =>
-      Object.hash(left, top, width, height, label, trackId, missedFrames);
+  final double left;
+  final double top;
+  final double width;
+  final double height;
+  final String label;
+  final int trackId;
+  final int missedFrames;
 }
 
-/// Internal state for a track, storing the smoothed position and the
-/// last time the object was seen.
-class _TrackedBox {
-  static const double alpha = AppConstants.trackingSmoothingAlpha;
-  final int trackId;
-  double left, top, width, height;
-  final String label;
-  DateTime lastSeenAt;
-  int missedFrames;
+// ── BoxTracker ────────────────────────────────────────────────────────────────
 
-  _TrackedBox({
-    required this.trackId,
-    required this.left,
-    required this.top,
-    required this.width,
-    required this.height,
-    required this.label,
-    required this.lastSeenAt,
-  }) : missedFrames = 0;
+/// Matches incoming [DetectionObject] lists to persistent tracks via IoU,
+/// applies exponential position smoothing, and produces [SmoothedBox] lists
+/// for the painter.
+///
+/// ## Smoothing
+///
+/// Position is blended each frame:
+///   `smoothed = α * detected + (1-α) * tracked`
+/// where α = [AppConstants.trackingSmoothingAlpha].
+///
+/// ## Age-based expiry
+///
+/// Tracks that have not been matched for [AppConstants.trackingMaxAgeMs]
+/// milliseconds are removed from the active set.  The [now] parameter on
+/// [update] can be injected in tests to control the clock.
+///
+/// ## version counter
+///
+/// An O(1) monotonic integer that increments on every [update] and [clear].
+/// [BoundingBoxPainter.shouldRepaint] compares versions directly instead of
+/// iterating the box list.
+class BoxTracker {
+  BoxTracker();
 
-  /// Applies exponential smoothing so bounding boxes move smoothly instead of
-  /// jumping abruptly between frames.
-  void update(BoundingBox box, DateTime now) {
-    left = left * (1 - alpha) + box.left * alpha;
-    top = top * (1 - alpha) + box.top * alpha;
-    width = width * (1 - alpha) + box.width * alpha;
-    height = height * (1 - alpha) + box.height * alpha;
-    missedFrames = 0;
-    lastSeenAt = now;
+  final Map<int, _Track> _tracks = {};
+  int _nextTrackId = 1;
+  int _version = 0;
+
+  static const double _iouThreshold = 0.3;
+
+  int get version => _version;
+
+  /// Matches [detections] against active tracks and returns the current
+  /// [SmoothedBox] list.  Pass [now] in tests to control the clock.
+  List<SmoothedBox> update(
+    List<DetectionObject> detections, {
+    DateTime? now,
+  }) {
+    final time = now ?? DateTime.now();
+    _version++;
+
+    // ── 1. Age-out stale tracks ─────────────────────────────────────────────
+    final maxAge = AppConstants.trackingMaxAgeMs;
+    _tracks.removeWhere(
+      (_, t) => time.difference(t.lastSeen).inMilliseconds > maxAge,
+    );
+
+    // ── 2. Greedy IoU matching ──────────────────────────────────────────────
+    final matched = <int>{};        // detection indices
+    final updatedTracks = <int>{};  // track IDs
+
+    for (final entry in _tracks.entries) {
+      final track = entry.value;
+      double bestIou = _iouThreshold;
+      int bestIdx = -1;
+
+      for (int i = 0; i < detections.length; i++) {
+        if (matched.contains(i)) continue;
+        final iou = _iou(track.box, detections[i].boundingBox);
+        if (iou > bestIou) {
+          bestIou = iou;
+          bestIdx = i;
+        }
+      }
+
+      if (bestIdx >= 0) {
+        // Match found: smooth position and reset miss counter.
+        matched.add(bestIdx);
+        updatedTracks.add(entry.key);
+        final det = detections[bestIdx];
+        track.smooth(det.boundingBox, time);
+        track.missedFrames = 0;
+      } else {
+        // No match: increment miss counter.
+        track.missedFrames++;
+      }
+    }
+
+    // ── 3. Spawn new tracks for unmatched detections ────────────────────────
+    for (int i = 0; i < detections.length; i++) {
+      if (matched.contains(i)) continue;
+      final det = detections[i];
+      _tracks[_nextTrackId] = _Track(
+        id: _nextTrackId,
+        box: det.boundingBox,
+        label: det.label,
+        firstSeen: time,
+        lastSeen: time,
+      );
+      _nextTrackId++;
+    }
+
+    // ── 4. Build output ─────────────────────────────────────────────────────
+    return _tracks.values.map((t) => t.toSmoothedBox()).toList();
   }
 
-  SmoothedBox snapshot() => SmoothedBox(
-        left: left,
-        top: top,
-        width: width,
-        height: height,
+  /// Clears all tracks and increments the version.
+  void clear() {
+    _tracks.clear();
+    _version++;
+  }
+
+  // ── IoU helper ──────────────────────────────────────────────────────────────
+
+  static double _iou(BoundingBox a, BoundingBox b) {
+    final ix = _overlap(a.left, a.right, b.left, b.right);
+    final iy = _overlap(a.top, a.bottom, b.top, b.bottom);
+    if (ix <= 0 || iy <= 0) return 0.0;
+    final inter = ix * iy;
+    return inter / (a.area + b.area - inter);
+  }
+
+  static double _overlap(double a0, double a1, double b0, double b1) =>
+      (a1 < b1 ? a1 : b1) - (a0 > b0 ? a0 : b0);
+}
+
+// ── Internal track state ──────────────────────────────────────────────────────
+
+class _Track {
+  _Track({
+    required this.id,
+    required BoundingBox box,
+    required this.label,
+    required this.firstSeen,
+    required DateTime lastSeen,
+  })  : _left = box.left,
+        _top = box.top,
+        _width = box.width,
+        _height = box.height,
+        lastSeen = lastSeen,
+        missedFrames = 0;
+
+  final int id;
+  final String label;
+  final DateTime firstSeen;
+  DateTime lastSeen;
+  int missedFrames;
+
+  double _left;
+  double _top;
+  double _width;
+  double _height;
+
+  /// Synthesised [BoundingBox] view of the current smoothed position,
+  /// used by [BoxTracker._iou] for greedy matching.
+  BoundingBox get box => BoundingBox(
+        left: _left,
+        top: _top,
+        width: _width,
+        height: _height,
+      );
+
+  static const double _alpha = AppConstants.trackingSmoothingAlpha;
+
+  /// Exponential smoothing toward the new detection position.
+  void smooth(BoundingBox detected, DateTime now) {
+    _left   = _alpha * detected.left   + (1 - _alpha) * _left;
+    _top    = _alpha * detected.top    + (1 - _alpha) * _top;
+    _width  = _alpha * detected.width  + (1 - _alpha) * _width;
+    _height = _alpha * detected.height + (1 - _alpha) * _height;
+    lastSeen = now;
+  }
+
+  SmoothedBox toSmoothedBox() => SmoothedBox(
+        left: _left,
+        top: _top,
+        width: _width,
+        height: _height,
         label: label,
-        trackId: trackId,
+        trackId: id,
         missedFrames: missedFrames,
       );
 }
 
-/// Manages [_TrackedBox] instances across consecutive frames.
-/// Uses IoU to match new detections to existing tracks with greedy matching.
-/// Tracks are removed after [maxTrackAge] if no detection matches them.
+// ── BoundingBoxPainter ────────────────────────────────────────────────────────
+
+/// Renders [SmoothedBox] bounding boxes on a [CustomPaint] surface.
 ///
-/// [version] increments whenever state changes and is used by
-/// [BoundingBoxPainter.shouldRepaint] for an `O(1)` comparison.
-class BoxTracker {
-  final Map<int, _TrackedBox> _tracked = {};
-  int _nextTrackId = 0;
-
-  int _version = 0;
-  int get version => _version;
-
-  static const double matchThreshold = 0.35;
-  static const Duration maxTrackAge =
-      Duration(milliseconds: AppConstants.trackingMaxAgeMs);
-
-  List<SmoothedBox> update(List<DetectionObject> detections, {DateTime? now}) {
-    final timestamp = now ?? DateTime.now();
-
-    for (final tracked in _tracked.values) {
-      tracked.missedFrames++;
-    }
-
-    final usedTrackIds = <int>{};
-    for (final det in detections) {
-      final box = det.boundingBox;
-      int? bestTrackId;
-      double bestIou = 0;
-
-      for (final entry in _tracked.entries) {
-        final tracked = entry.value;
-        if (tracked.label != det.label) continue;
-        if (usedTrackIds.contains(entry.key)) continue;
-        final iou = _iou(tracked.left, tracked.top, tracked.width,
-            tracked.height, box.left, box.top, box.width, box.height);
-        if (iou > bestIou) {
-          bestIou = iou;
-          bestTrackId = entry.key;
-        }
-      }
-
-      if (bestTrackId != null && bestIou > matchThreshold) {
-        _tracked[bestTrackId]!.update(box, timestamp);
-        usedTrackIds.add(bestTrackId);
-      } else {
-        final trackId = _nextTrackId++;
-        _tracked[trackId] = _TrackedBox(
-          trackId: trackId,
-          left: box.left,
-          top: box.top,
-          width: box.width,
-          height: box.height,
-          label: det.label,
-          lastSeenAt: timestamp,
-        );
-        usedTrackIds.add(trackId);
-      }
-    }
-
-    _tracked.removeWhere(
-      (_, tracked) => timestamp.difference(tracked.lastSeenAt) > maxTrackAge,
-    );
-
-    _version++;
-    return _tracked.values.map((t) => t.snapshot()).toList(growable: false)
-      ..sort((a, b) => a.trackId.compareTo(b.trackId));
-  }
-
-  double _iou(double al, double at, double aw, double ah, double bl, double bt,
-      double bw, double bh) {
-    final iL = al > bl ? al : bl;
-    final iT = at > bt ? at : bt;
-    final iR = (al + aw) < (bl + bw) ? (al + aw) : (bl + bw);
-    final iB = (at + ah) < (bt + bh) ? (at + ah) : (bt + bh);
-    if (iR <= iL || iB <= iT) return 0;
-    final inter = (iR - iL) * (iB - iT);
-    return inter / (aw * ah + bw * bh - inter);
-  }
-
-  void clear() {
-    _tracked.clear();
-    _nextTrackId = 0;
-    _version++;
-  }
-}
-
-/// Draws [SmoothedBox] bounding boxes onto the camera canvas.
+/// ## Performance invariants
 ///
-/// [version] enables an `O(1)` comparison inside [shouldRepaint] instead of
-/// walking every box on each frame.
+/// * [shouldRepaint] is O(1): it compares [version] integers, never iterates
+///   the box list.
+/// * [TextPainter] instances are cached in the static [_textCache] keyed by
+///   label string.  Cache entries are removed in [dispose] for every label
+///   that this painter instance owns, preventing unbounded growth.
 ///
-/// [TextPainter] instances are cached by label to avoid repeated text layout.
-/// The cache uses LRU eviction via [LinkedHashMap]: entries are promoted to
-/// the tail on access and evicted from the head when full.
+/// ## Testing
 ///
-/// The cache manages its own lifecycle. Instance [dispose] is intentionally a
-/// no-op for the static cache — eviction handles cleanup. This avoids a
-/// use-after-free trap when two painter instances briefly coexist during a
-/// [ValueListenableBuilder] rebuild.
+/// Call [clearCacheForTesting] in `tearDown` to reset the static cache between
+/// test groups so cached [TextPainter] state does not cross-contaminate tests.
 class BoundingBoxPainter extends CustomPainter {
-  final List<SmoothedBox> boxes;
-  final bool mirrorHorizontal;
-  final int _version;
-
-  /// LRU [TextPainter] cache: head = oldest (eviction target), tail = newest.
-  /// Uses [LinkedHashMap] insertion-order semantics for O(1) promotion.
-  static final LinkedHashMap<String, TextPainter> _textCache =
-      LinkedHashMap<String, TextPainter>();
-  static const int _maxCacheEntries = 50;
-
-  /// Paint objects stay as final instance fields instead of static fields to
-  /// avoid shared mutable state between painter instances.
-  /// Each frame gets its own small set of Paint objects, which is safer.
-  final Paint _strokePaint = Paint()
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 2.0;
-
-  final Paint _cornerPaint = Paint()
-    ..style = PaintingStyle.stroke
-    ..strokeCap = StrokeCap.round
-    ..strokeWidth = 3.0;
-
-  final Paint _labelPaint = Paint()..style = PaintingStyle.fill;
-
   BoundingBoxPainter({
     required this.boxes,
     this.mirrorHorizontal = false,
-    int version = 0,
-  }) : _version = version;
+    this.version = 0,
+  });
 
-  /// No-op for instance disposal.
-  ///
-  /// [CustomPainter] has no framework-managed `dispose()` lifecycle, so this
-  /// method is never called automatically. The static [_textCache] manages its
-  /// own lifecycle through LRU eviction. Removing entries here would cause a
-  /// use-after-free if two painter instances briefly coexist during a rebuild.
+  final List<SmoothedBox> boxes;
+  final bool mirrorHorizontal;
+  final int version;
+
+  // ── Static TextPainter cache ─────────────────────────────────────────────
+
+  static final Map<String, TextPainter> _textCache = {};
+
+  /// Removes cache entries for all labels owned by this painter.
+  /// Call in [CustomPainter.dispose] (wired via [WidgetState.dispose]).
   void dispose() {
-    // Intentionally empty — LRU eviction handles cache cleanup.
-  }
-
-  /// Clears the entire [TextPainter] cache and disposes every entry.
-  /// Intended for test tearDown logic to reset static state between tests and
-  /// avoid cross-test pollution.
-  // ignore: invalid_use_of_visible_for_testing_member
-  static void clearCacheForTesting() {
-    for (final tp in _textCache.values) {
-      tp.dispose();
+    for (final box in boxes) {
+      _textCache.remove(box.label);
     }
-    _textCache.clear();
   }
 
-  /// Returns true only when the version counter or mirror flag changes.
-  /// This stays `O(1)` and does not iterate through the boxes list.
+  /// Clears the entire static cache.  Call in `tearDown` inside unit / widget
+  /// tests to avoid state leakage between test groups.
+  static void clearCacheForTesting() => _textCache.clear();
+
+  // ── CustomPainter ─────────────────────────────────────────────────────────
+
   @override
-  bool shouldRepaint(covariant BoundingBoxPainter old) {
-    if (mirrorHorizontal != old.mirrorHorizontal) return true;
-    if (_version != old._version) return true;
-    // Fallback when versioning is not provided (`version == 0` on both sides).
-    if (_version == 0 && old._version == 0) {
-      if (boxes.length != old.boxes.length) return true;
-      for (int i = 0; i < boxes.length; i++) {
-        if (boxes[i] != old.boxes[i]) return true;
-      }
-    }
-    return false;
-  }
+  bool shouldRepaint(BoundingBoxPainter oldDelegate) =>
+      version != oldDelegate.version ||
+      mirrorHorizontal != oldDelegate.mirrorHorizontal;
 
   @override
   void paint(Canvas canvas, Size size) {
-    for (final box in boxes) {
-      _drawBox(canvas, size, box);
-    }
-  }
+    if (boxes.isEmpty) return;
 
-  void _drawBox(Canvas canvas, Size size, SmoothedBox box) {
-    double l = box.left * size.width;
-    double t = box.top * size.height;
-    double r = (box.left + box.width) * size.width;
-    double b = (box.top + box.height) * size.height;
+    // Guard against a zero-sized canvas (e.g. before layout completes).
+    if (size.width <= 0 || size.height <= 0) return;
 
     if (mirrorHorizontal) {
-      final tmp = l;
-      l = size.width - r;
-      r = size.width - tmp;
+      canvas.save();
+      canvas.scale(-1, 1);
+      canvas.translate(-size.width, 0);
     }
 
-    l = l.clamp(0, size.width);
-    t = t.clamp(0, size.height);
-    r = r.clamp(0, size.width);
-    b = b.clamp(0, size.height);
-    if (r - l < 2 || b - t < 2) return;
+    for (final box in boxes) {
+      _paintBox(canvas, size, box);
+    }
 
-    final rect = Rect.fromLTRB(l, t, r, b);
-    final color = _colorForLabel(box.label);
-
-    // Reduce opacity as missed frames increase to create a fade-out effect.
-    final opacity = box.missedFrames == 0
-        ? 1.0
-        : (1.0 - box.missedFrames / 4.0).clamp(0.2, 1.0);
-
-    _strokePaint.color = color.withValues(alpha: 0.85 * opacity);
-    _cornerPaint.color = color.withValues(alpha: opacity);
-    _labelPaint.color = color.withValues(alpha: 0.9);
-
-    canvas.drawRect(rect, _strokePaint);
-    _drawCorners(canvas, rect, _cornerPaint);
-    _drawLabel(canvas, size, rect, box.label, _labelPaint);
+    if (mirrorHorizontal) canvas.restore();
   }
 
-  /// Draws emphasized corners to keep the box visible on busy backgrounds.
-  void _drawCorners(Canvas canvas, Rect rect, Paint paint) {
-    final len = (rect.width * 0.15).clamp(8.0, 20.0);
-    canvas.drawPath(
-      Path()
-        ..moveTo(rect.left, rect.top + len)
-        ..lineTo(rect.left, rect.top)
-        ..lineTo(rect.left + len, rect.top)
-        ..moveTo(rect.right - len, rect.top)
-        ..lineTo(rect.right, rect.top)
-        ..lineTo(rect.right, rect.top + len)
-        ..moveTo(rect.left, rect.bottom - len)
-        ..lineTo(rect.left, rect.bottom)
-        ..lineTo(rect.left + len, rect.bottom)
-        ..moveTo(rect.right - len, rect.bottom)
-        ..lineTo(rect.right, rect.bottom)
-        ..lineTo(rect.right, rect.bottom - len),
-      paint,
+  // ── Per-box rendering ─────────────────────────────────────────────────────
+
+  void _paintBox(Canvas canvas, Size size, SmoothedBox box) {
+    // Clamp to visible area — prevents out-of-bounds boxes from crashing.
+    final left   = (box.left.clamp(0.0, 1.0) * size.width);
+    final top    = (box.top.clamp(0.0, 1.0) * size.height);
+    final right  = ((box.left + box.width).clamp(0.0, 1.0) * size.width);
+    final bottom = ((box.top + box.height).clamp(0.0, 1.0) * size.height);
+
+    final rectW = right - left;
+    final rectH = bottom - top;
+
+    // Skip boxes that are too small or have extreme aspect ratios.
+    final area = (rectW / size.width) * (rectH / size.height);
+    if (area < AppConstants.minRenderableBoxArea) return;
+    final aspectRatio = rectW > 0 && rectH > 0
+        ? (rectW > rectH ? rectW / rectH : rectH / rectW)
+        : double.infinity;
+    if (aspectRatio > AppConstants.maxRenderableAspectRatio) return;
+
+    final rect = Rect.fromLTRB(left, top, right, bottom);
+
+    // Per-box opacity fades out as missedFrames grows.
+    final opacity = (1.0 - box.missedFrames * 0.3).clamp(0.2, 1.0);
+    final color = _colorForLabel(box.label).withValues(alpha: opacity);
+
+    // ── Border ──────────────────────────────────────────────────────────────
+    final borderPaint = Paint()
+      ..color = color
+      ..strokeWidth = 3.0
+      ..style = PaintingStyle.stroke;
+    canvas.drawRect(rect, borderPaint);
+
+    // ── Corner accents ───────────────────────────────────────────────────────
+    const cornerLen = 16.0;
+    _drawCorner(canvas, borderPaint, rect, cornerLen);
+
+    // ── Label badge ──────────────────────────────────────────────────────────
+    final tp = _getOrCreateTextPainter(box.label, color, opacity);
+    final labelW = tp.width + 12;
+    final labelH = tp.height + 6;
+    final badgeRect = Rect.fromLTWH(left, top - labelH, labelW, labelH);
+
+    canvas.drawRect(
+      badgeRect,
+      Paint()..color = color.withValues(alpha: (opacity * 0.85).clamp(0.0, 1.0)),
     );
+
+    tp.paint(canvas, Offset(left + 6, top - labelH + 3));
   }
 
-  void _drawLabel(
-      Canvas canvas, Size size, Rect rect, String label, Paint bgPaint) {
-    final tp = _getOrCreatePainter(label);
-    final lw = tp.width + 10;
-    final lh = tp.height + 5;
-    final lt = (rect.top - lh - 2).clamp(0.0, size.height - lh);
+  // ── Corner accent helper ──────────────────────────────────────────────────
 
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(rect.left, lt, lw, lh),
-        const Radius.circular(3),
-      ),
-      bgPaint,
-    );
-    tp.paint(canvas, Offset(rect.left + 5, lt + 2.5));
+  void _drawCorner(Canvas canvas, Paint paint, Rect r, double len) {
+    // Top-left
+    canvas.drawLine(r.topLeft, r.topLeft.translate(len, 0), paint);
+    canvas.drawLine(r.topLeft, r.topLeft.translate(0, len), paint);
+    // Top-right
+    canvas.drawLine(r.topRight, r.topRight.translate(-len, 0), paint);
+    canvas.drawLine(r.topRight, r.topRight.translate(0, len), paint);
+    // Bottom-left
+    canvas.drawLine(r.bottomLeft, r.bottomLeft.translate(len, 0), paint);
+    canvas.drawLine(r.bottomLeft, r.bottomLeft.translate(0, -len), paint);
+    // Bottom-right
+    canvas.drawLine(r.bottomRight, r.bottomRight.translate(-len, 0), paint);
+    canvas.drawLine(r.bottomRight, r.bottomRight.translate(0, -len), paint);
   }
 
-  /// Returns a cached [TextPainter] or creates a new one.
-  ///
-  /// On cache hit, the entry is promoted to the tail (most recently used).
-  /// On cache miss at capacity, the head (least recently used) is evicted.
-  TextPainter _getOrCreatePainter(String label) {
-    if (_textCache.containsKey(label)) {
-      // Promote to MRU position: remove and reinsert at tail.
-      final tp = _textCache.remove(label)!;
+  // ── TextPainter cache ─────────────────────────────────────────────────────
+
+  TextPainter _getOrCreateTextPainter(
+    String label,
+    Color color,
+    double opacity,
+  ) {
+    // Cache by label only; color / opacity are set on the existing painter
+    // each call so we do not proliferate cache entries per opacity value.
+    if (!_textCache.containsKey(label)) {
+      final tp = TextPainter(textDirection: TextDirection.ltr);
       _textCache[label] = tp;
-      return tp;
     }
 
-    // Evict LRU entry (head of LinkedHashMap) when at capacity.
-    if (_textCache.length >= _maxCacheEntries) {
-      final lruKey = _textCache.keys.first;
-      _textCache.remove(lruKey)!.dispose();
-    }
-
-    final painter = TextPainter(
-      text: TextSpan(
-        text: label,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
-        ),
+    final tp = _textCache[label]!;
+    tp.text = TextSpan(
+      text: VoiceHelper.normalizeLabel(label),
+      style: TextStyle(
+        color: Colors.white.withValues(alpha: opacity.clamp(0.2, 1.0)),
+        fontSize: 13,
+        fontWeight: FontWeight.bold,
+        shadows: const [
+          Shadow(blurRadius: 2, color: Colors.black),
+        ],
       ),
-      textDirection: TextDirection.ltr,
-    )..layout(maxWidth: 200);
-
-    _textCache[label] = painter;
-    return painter;
+    );
+    tp.layout(maxWidth: 200);
+    return tp;
   }
 
-  /// Assigns a stable color to each label based on its hash so the color stays
-  /// consistent across frames and across tracks of the same class.
-  Color _colorForLabel(String label) {
-    const palette = [
-      Color(0xFF00E676),
-      Color(0xFF00B0FF),
-      Color(0xFFFF6D00),
-      Color(0xFFD500F9),
-      Color(0xFF00E5FF),
-      Color(0xFFFF4081),
-    ];
-    return palette[label.hashCode.abs() % palette.length];
-  }
+  // ── Deterministic label colour ────────────────────────────────────────────
+
+  static const List<Color> _palette = [
+    Color(0xFF00E5FF), // cyan
+    Color(0xFF69FF47), // lime
+    Color(0xFFFF6D00), // deep orange
+    Color(0xFFE040FB), // purple
+    Color(0xFFFFD740), // amber
+    Color(0xFF40C4FF), // light blue
+    Color(0xFF69FFCC), // teal
+    Color(0xFFFF4081), // pink
+    Color(0xFFB2FF59), // light green
+    Color(0xFFFFAB40), // orange
+    Color(0xFF80D8FF), // sky blue
+    Color(0xFFEA80FC), // light purple
+    Color(0xFFCCFF90), // light lime
+  ];
+
+  static Color _colorForLabel(String label) =>
+      _palette[label.hashCode.abs() % _palette.length];
 }

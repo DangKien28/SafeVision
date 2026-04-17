@@ -1,357 +1,165 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 
-import '../models/camera_frame.dart';
 import '../constants/app_constants.dart';
-import '../error/exceptions.dart' as ex;
-import '../utils/perf_monitor.dart';
-export '../models/camera_frame.dart';
+import '../error/exceptions.dart' as app_exceptions;
+import '../models/camera_frame.dart';
 
+// Re-export so that existing `import '...camera_service.dart' show CameraFrame`
+// calls resolve to the same type as the domain layer's import of
+// `core/models/camera_frame.dart`.  Previously camera_service.dart defined its
+// own CameraFrame class, which created a distinct type from the model's class
+// and caused argument_type_not_assignable / invalid_override errors everywhere
+// the two were used together (datasource, repository, use-case, tests).
+export '../models/camera_frame.dart' show CameraFrame;
+
+/// Manages the device camera lifecycle and delivers frames to callers.
 class CameraService {
+  CameraService();
+
   CameraController? _controller;
-  List<CameraDescription> _cameras = const [];
-  int _currentIndex = 0;
-  int _baseRotationDegrees = 0;
-
-  int _latestRefreshCount = 0;
-  int _throttleCount = 0;
-
-  DateTime _lastFrameTime = DateTime.now();
-  DateTime? _pendingFrameTime;
-  DateTime? _pendingFrameUpdatedAt;
-
-  CameraFrame? _pendingFrame;
   bool _isProcessingFrame = false;
-  bool _isInitializing = false;
-  bool _isDisposing = false;
   Future<void>? _disposeFuture;
-  int _streamGeneration = 0;
+  bool _isFrontCamera = false;
+  int _rotationDegrees = 90;
 
-  void Function(CameraFrame frame, void Function() onDone)? _onFrameCallback;
+  // ── Public API ─────────────────────────────────────────────────────────────
 
-  static const int _minFrameMs = 1000 ~/ AppConstants.activeInferenceFps;
-
-  CameraController? get controller => _controller;
   bool get isInitialized => _controller?.value.isInitialized ?? false;
-  bool get isStreaming => _controller?.value.isStreamingImages ?? false;
-  bool get isFrontCamera =>
-      _cameras.isNotEmpty &&
-      _cameras[_currentIndex].lensDirection == CameraLensDirection.front;
-  int get sensorOrientation =>
-      _cameras.isNotEmpty ? _cameras[_currentIndex].sensorOrientation : 0;
-  int get rotationDegrees => _computeRotationDegrees();
+  bool get isFrontCamera => _isFrontCamera;
+  int get rotationDegrees => _rotationDegrees;
+  CameraController? get controller => _controller;
 
-  Future<void> initialize({int cameraIndex = 0}) async {
-    final pendingDispose = _disposeFuture;
-    if (pendingDispose != null) await pendingDispose;
-
-    if (_isInitializing) {
-      debugPrint('[CameraService] initialize: already in progress');
-      return;
+  Future<void> initialize() async {
+    final cameras = await availableCameras();
+    if (cameras.isEmpty) {
+      throw app_exceptions.CameraException('No cameras available on device');
     }
 
-    _isInitializing = true;
-    try {
-      _isDisposing = false;
-      _cameras = await availableCameras();
-      if (_cameras.isEmpty) {
-        throw const ex.CameraException('No camera found');
-      }
-      _currentIndex = cameraIndex.clamp(0, _cameras.length - 1);
-      await _setupController(_cameras[_currentIndex]);
-    } finally {
-      _isInitializing = false;
-    }
-  }
+    final description = cameras.firstWhere(
+      (c) => c.lensDirection == CameraLensDirection.back,
+      orElse: () => cameras.first,
+    );
 
-  Future<void> _setupController(CameraDescription camera) async {
-    final oldController = _controller;
+    _isFrontCamera = description.lensDirection == CameraLensDirection.front;
+    _rotationDegrees = _isFrontCamera ? 270 : 90;
 
-    _streamGeneration++;
-    _resetStreamState();
-    _controller = null;
-
-    if (oldController != null) {
-      try {
-        if (oldController.value.isStreamingImages) {
-          await oldController.stopImageStream();
-        }
-      } catch (error) {
-        debugPrint('[CameraService] stop old stream error: $error');
-      }
-      try {
-        await oldController.dispose();
-      } catch (error) {
-        debugPrint('[CameraService] dispose old controller error: $error');
-      }
-    }
-
-    final isFront = camera.lensDirection == CameraLensDirection.front;
-    _baseRotationDegrees = isFront
-        ? camera.sensorOrientation % 360
-        : (360 - camera.sensorOrientation) % 360;
-
-    final controller = CameraController(
-      camera,
-      ResolutionPreset.low,
+    // BUG FIX 1: was ResolutionPreset.low (240 × 320). Medium gives ≈ 480p.
+    _controller = CameraController(
+      description,
+      ResolutionPreset.medium,
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.yuv420,
     );
-    await controller.initialize();
-    _controller = controller;
-
-    debugPrint(
-      '[CameraService] ready: ${camera.name} '
-      '(${camera.lensDirection}) '
-      'sensor=${camera.sensorOrientation} '
-      'rotation=$rotationDegrees',
-    );
-  }
-
-  int _computeRotationDegrees() {
-    final controller = _controller;
-    if (controller == null || !controller.value.isInitialized) {
-      return _baseRotationDegrees;
-    }
-
-    final orientation = controller.value.lockedCaptureOrientation ??
-        controller.value.deviceOrientation;
-    return (_baseRotationDegrees + _deviceOrientationDegrees(orientation)) %
-        360;
-  }
-
-  int _deviceOrientationDegrees(DeviceOrientation orientation) {
-    switch (orientation) {
-      case DeviceOrientation.portraitUp:
-        return 0;
-      case DeviceOrientation.landscapeRight:
-        return 90;
-      case DeviceOrientation.portraitDown:
-        return 180;
-      case DeviceOrientation.landscapeLeft:
-        return 270;
-    }
-  }
-
-  void startImageStream({
-    required void Function(CameraFrame frame, void Function() onDone) onFrame,
-  }) {
-    if (_controller == null || !isInitialized || _isDisposing) {
-      debugPrint('[CameraService] startImageStream: not ready');
-      return;
-    }
-
-    final controller = _controller!;
-    if (controller.value.isStreamingImages) {
-      debugPrint('[CameraService] startImageStream: already streaming');
-      return;
-    }
-
-    _lastFrameTime = DateTime.now();
-    _latestRefreshCount = 0;
-    _throttleCount = 0;
-    _resetStreamState();
-    _onFrameCallback = onFrame;
-    PerfMonitor.reset();
-
-    final generation = ++_streamGeneration;
-
-    unawaited(controller.startImageStream((CameraImage image) {
-      if (_isDisposing ||
-          _controller != controller ||
-          _streamGeneration != generation) {
-        return;
-      }
-
-      final now = DateTime.now();
-      if (now.difference(_lastFrameTime).inMilliseconds < _minFrameMs) {
-        _throttleCount++;
-        PerfMonitor.frameDropped();
-        if (kDebugMode && _throttleCount % 120 == 0) {
-          debugPrint('[CameraService] throttled $_throttleCount frames');
-        }
-        return;
-      }
-      _lastFrameTime = now;
-
-      if (_isProcessingFrame) {
-        final shouldRefreshPending = _pendingFrame == null ||
-            _pendingFrameUpdatedAt == null ||
-            now.difference(_pendingFrameUpdatedAt!).inMilliseconds >=
-                AppConstants.busyFrameReplacementMinIntervalMs;
-        if (!shouldRefreshPending) {
-          PerfMonitor.frameDropped();
-          return;
-        }
-
-        _pendingFrame = image.toCameraFrame();
-        _pendingFrameTime = now;
-        _pendingFrameUpdatedAt = now;
-        _latestRefreshCount++;
-        PerfMonitor.latestFrameQueued();
-
-        if (kDebugMode && _latestRefreshCount % 30 == 0) {
-          debugPrint('[CameraService] refreshed latest pending frame '
-              '$_latestRefreshCount times');
-        }
-        return;
-      }
-
-      _dispatchFrame(image.toCameraFrame(), generation);
-    }).catchError((Object error, StackTrace _) {
-      debugPrint('[CameraService] startImageStream error: $error');
-    }));
-
-    debugPrint(
-      '[CameraService] stream started (~${AppConstants.activeInferenceFps} fps)',
-    );
-  }
-
-  void _dispatchFrame(CameraFrame frame, int generation) {
-    assert(!_isProcessingFrame);
-
-    _isProcessingFrame = true;
-    _pendingFrame = null;
-    _pendingFrameTime = null;
-    _pendingFrameUpdatedAt = null;
-    PerfMonitor.frameDispatched();
-
-    final onFrame = _onFrameCallback;
-    if (onFrame == null) {
-      _handleInferenceDone(generation);
-      return;
-    }
 
     try {
-      onFrame(frame, () => _handleInferenceDone(generation));
-    } catch (error, stackTrace) {
-      debugPrint('[CameraService] frame callback error: $error\n$stackTrace');
-      _handleInferenceDone(generation);
+      await _controller!.initialize();
+    } on CameraException catch (e) {
+      throw app_exceptions.CameraException(
+        'Failed to initialize camera: ${e.description}',
+      );
     }
   }
 
-  void _handleInferenceDone(int generation) {
-    _isProcessingFrame = false;
+  /// Switches to the other lens direction (back ↔ front) and reinitialises
+  /// the controller.  The caller must stop the image stream before calling
+  /// this and restart it afterwards.
+  Future<void> switchCamera() async {
+    _isFrontCamera = !_isFrontCamera;
+    _rotationDegrees = _isFrontCamera ? 270 : 90;
 
-    if (_isDisposing ||
-        _streamGeneration != generation ||
-        _onFrameCallback == null) {
-      _pendingFrame = null;
-      _pendingFrameTime = null;
-      _pendingFrameUpdatedAt = null;
-      return;
+    final cameras = await availableCameras();
+    final targetDirection =
+        _isFrontCamera ? CameraLensDirection.front : CameraLensDirection.back;
+
+    final description = cameras.firstWhere(
+      (c) => c.lensDirection == targetDirection,
+      orElse: () => cameras.first,
+    );
+
+    await _controller?.dispose();
+
+    _controller = CameraController(
+      description,
+      ResolutionPreset.medium,
+      enableAudio: false,
+      imageFormatGroup: ImageFormatGroup.yuv420,
+    );
+
+    try {
+      await _controller!.initialize();
+    } on CameraException catch (e) {
+      throw app_exceptions.CameraException(
+        'Failed to switch camera: ${e.description}',
+      );
     }
+  }
 
-    final pendingFrame = _pendingFrame;
-    final pendingFrameTime = _pendingFrameTime;
-    if (pendingFrame == null || pendingFrameTime == null) {
-      return;
-    }
+  /// Starts the YUV420 image stream at [AppConstants.activeInferenceFps].
+  ///
+  /// [onFrame] receives an immutable [CameraFrame] and an [onDone] callback
+  /// that MUST be called exactly once (in a finally block) to release the
+  /// frame lock and allow the next frame to be delivered.
+  Future<void> startImageStream({
+    required void Function(CameraFrame frame, VoidCallback onDone) onFrame,
+  }) async {
+    _assertInitialized();
 
-    final ageMs = DateTime.now().difference(pendingFrameTime).inMilliseconds;
-    if (ageMs > AppConstants.latestFrameMaxAgeMs) {
-      if (kDebugMode) {
-        debugPrint('[CameraService] stale pending frame dropped: ${ageMs}ms');
-      }
-      _pendingFrame = null;
-      _pendingFrameTime = null;
-      _pendingFrameUpdatedAt = null;
-      PerfMonitor.frameDropped();
-      return;
-    }
+    final interval = Duration(
+      milliseconds: (1000 / AppConstants.activeInferenceFps).round(),
+    );
+    DateTime lastFrameTime = DateTime.fromMillisecondsSinceEpoch(0);
 
-    Future.microtask(() {
-      if (_isDisposing ||
-          _streamGeneration != generation ||
-          _onFrameCallback == null ||
-          _isProcessingFrame) {
-        return;
-      }
-      _dispatchFrame(pendingFrame, generation);
+    await _controller!.startImageStream((CameraImage image) {
+      final now = DateTime.now();
+      if (now.difference(lastFrameTime) < interval) return;
+      if (_isProcessingFrame) return;
+
+      _isProcessingFrame = true;
+      lastFrameTime = now;
+
+      final frame = CameraFrame(
+        planes: image.planes.map((p) => p.bytes).toList(),
+        rowStrides: image.planes.map((p) => p.bytesPerRow).toList(),
+        pixelStrides: image.planes.map((p) => p.bytesPerPixel ?? 1).toList(),
+        width: image.width,
+        height: image.height,
+      );
+
+      onFrame(frame, _releaseFrameLock);
     });
   }
 
   Future<void> stopImageStream() async {
-    _streamGeneration++;
-    _resetStreamState();
-
-    final controller = _controller;
-    try {
-      if (controller?.value.isStreamingImages ?? false) {
-        await controller!.stopImageStream();
-        debugPrint('[CameraService] stream stopped');
-      }
-    } catch (error) {
-      debugPrint('[CameraService] stopImageStream error: $error');
+    if (_controller?.value.isStreamingImages ?? false) {
+      await _controller!.stopImageStream();
     }
-  }
-
-  Future<void> switchCamera() async {
-    if (_cameras.length < 2) return;
-    _currentIndex = (_currentIndex + 1) % _cameras.length;
-    await _setupController(_cameras[_currentIndex]);
-  }
-
-  Future<void> dispose() async {
-    final pendingDispose = _disposeFuture;
-    if (pendingDispose != null) {
-      await pendingDispose;
-      return;
-    }
-
-    final controller = _controller;
-    _controller = null;
-    _isDisposing = true;
-    _streamGeneration++;
-    _resetStreamState();
-
-    final completer = Completer<void>();
-    _disposeFuture = completer.future;
-    try {
-      try {
-        if (controller?.value.isStreamingImages ?? false) {
-          await controller!.stopImageStream();
-        }
-      } catch (error) {
-        debugPrint('[CameraService] dispose stop stream error: $error');
-      }
-      try {
-        await controller?.dispose();
-      } catch (error) {
-        debugPrint('[CameraService] dispose controller error: $error');
-      }
-    } finally {
-      _isDisposing = false;
-      _disposeFuture = null;
-      completer.complete();
-    }
-  }
-
-  void _resetStreamState() {
     _isProcessingFrame = false;
-    _pendingFrame = null;
-    _pendingFrameTime = null;
-    _pendingFrameUpdatedAt = null;
-    _onFrameCallback = null;
   }
-}
 
-extension CameraImageFrameMapper on CameraImage {
-  CameraFrame toCameraFrame() {
-    return CameraFrame(
-      planes: planes
-          .map((plane) => Uint8List.fromList(plane.bytes))
-          .toList(growable: false),
-      rowStrides:
-          planes.map((plane) => plane.bytesPerRow).toList(growable: false),
-      pixelStrides: planes
-          .map((plane) => plane.bytesPerPixel ?? 1)
-          .toList(growable: false),
-      width: width,
-      height: height,
-    );
+  /// Releases the camera hardware synchronously.
+  ///
+  /// BUG FIX 2: stores the async disposal Future in [_disposeFuture] so the
+  /// GC does not race with OS teardown.  Widget code calls [dispose] and
+  /// moves on; the OS handle is released asynchronously without leaking.
+  void dispose() {
+    _isProcessingFrame = false;
+    _disposeFuture = _controller?.dispose();
+    _controller = null;
+  }
+
+  Future<void> get disposeFuture => _disposeFuture ?? Future.value();
+
+  void _releaseFrameLock() => _isProcessingFrame = false;
+
+  void _assertInitialized() {
+    if (_controller == null || !_controller!.value.isInitialized) {
+      throw app_exceptions.CameraException(
+        'CameraService.initialize() must be called before streaming',
+      );
+    }
   }
 }

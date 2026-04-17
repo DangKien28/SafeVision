@@ -1,64 +1,42 @@
+// Excluded from coverage: depends on SharedPreferences (native plugin).
+ 
 import 'package:shared_preferences/shared_preferences.dart';
+ 
 import '../../../../core/constants/app_constants.dart';
-
+ 
 class LocalStorageService {
-  static const _keySpeechRate = 'speech_rate';
-  static const _keyConfThreshold = 'confidence_threshold';
-  static const _keyVoiceEnabled = 'voice_enabled';
-  static const _keyShowConfPanel = 'show_confidence_panel';
-  static const _keyTtsLanguage = 'tts_language';
-
+  LocalStorageService();
+ 
+  static const _keySpeechRate         = 'speechRate';
+  static const _keyConfidence         = 'confidenceThreshold';
+  static const _keyVoiceEnabled       = 'voiceEnabled';
+  static const _keyShowConfidence     = 'showConfidencePanel';
+  static const _keyTtsLanguage        = 'ttsLanguage';
+ 
   Future<SharedPreferences> get _prefs => SharedPreferences.getInstance();
-
-  Future<double> getSpeechRate() async {
-    final p = await _prefs;
-    return p.getDouble(_keySpeechRate) ?? AppConstants.ttsSpeechRate;
-  }
-
-  Future<void> setSpeechRate(double rate) async {
-    final p = await _prefs;
-    await p.setDouble(_keySpeechRate, rate);
-  }
-
-  Future<double> getConfidenceThreshold() async {
-    final p = await _prefs;
-    return p.getDouble(_keyConfThreshold) ?? AppConstants.confidenceThreshold;
-  }
-
-  Future<void> setConfidenceThreshold(double v) async {
-    final p = await _prefs;
-    await p.setDouble(_keyConfThreshold, v);
-  }
-
-  Future<bool> getVoiceEnabled() async {
-    final p = await _prefs;
-    return p.getBool(_keyVoiceEnabled) ?? true;
-  }
-
-  Future<void> setVoiceEnabled(bool v) async {
-    final p = await _prefs;
-    await p.setBool(_keyVoiceEnabled, v);
-  }
-
-  Future<bool> getShowConfidencePanel() async {
-    final p = await _prefs;
-    return p.getBool(_keyShowConfPanel) ?? true;
-  }
-
-  Future<void> setShowConfidencePanel(bool v) async {
-    final p = await _prefs;
-    await p.setBool(_keyShowConfPanel, v);
-  }
-
-  Future<String> getTtsLanguage() async {
-    final p = await _prefs;
-    return p.getString(_keyTtsLanguage) ?? AppConstants.ttsLanguage;
-  }
-
-  /// Persists the language value.
-  /// Language is locked to [AppConstants.ttsLanguage] for this release.
-  Future<void> setTtsLanguage(String lang) async {
-    final p = await _prefs;
-    await p.setString(_keyTtsLanguage, lang);
-  }
+ 
+  Future<double> getSpeechRate() async =>
+      (await _prefs).getDouble(_keySpeechRate) ?? AppConstants.ttsSpeechRate;
+  Future<void> setSpeechRate(double v) async =>
+      (await _prefs).setDouble(_keySpeechRate, v);
+ 
+  Future<double> getConfidenceThreshold() async =>
+      (await _prefs).getDouble(_keyConfidence) ?? AppConstants.confidenceThreshold;
+  Future<void> setConfidenceThreshold(double v) async =>
+      (await _prefs).setDouble(_keyConfidence, v);
+ 
+  Future<bool> getVoiceEnabled() async =>
+      (await _prefs).getBool(_keyVoiceEnabled) ?? true;
+  Future<void> setVoiceEnabled(bool v) async =>
+      (await _prefs).setBool(_keyVoiceEnabled, v);
+ 
+  Future<bool> getShowConfidencePanel() async =>
+      (await _prefs).getBool(_keyShowConfidence) ?? true;
+  Future<void> setShowConfidencePanel(bool v) async =>
+      (await _prefs).setBool(_keyShowConfidence, v);
+ 
+  Future<String> getTtsLanguage() async =>
+      (await _prefs).getString(_keyTtsLanguage) ?? AppConstants.ttsLanguage;
+  Future<void> setTtsLanguage(String v) async =>
+      (await _prefs).setString(_keyTtsLanguage, v);
 }

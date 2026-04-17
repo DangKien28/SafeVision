@@ -1,15 +1,13 @@
-import '../repositories/detection_repository.dart';
 import '../../../../core/usecases/usecase.dart';
+import '../repositories/detection_repository.dart';
 
-/// Releases the TFLite interpreter inside the isolate when detection stops.
+/// Closes the TFLite model and terminates the inference isolate.
 ///
-/// Keeping this as its own use case allows the presentation layer
-/// ([DetectionBloc]) to stay unaware of [DetectionRepository], following
-/// the Clean Architecture dependency rule.
+/// Always call via `usecase.call(const NoParams())`.
 class CloseModelUsecase implements UseCase<void, NoParams> {
-  final DetectionRepository _repository;
   CloseModelUsecase(this._repository);
-
+  final DetectionRepository _repository;
+ 
   @override
   Future<void> call(NoParams params) => _repository.closeModel();
 }

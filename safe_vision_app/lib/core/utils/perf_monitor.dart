@@ -1,91 +1,57 @@
+import 'dart:collection';
 import 'package:flutter/foundation.dart';
-
-/// Lightweight debug-only telemetry for the real-time detection pipeline.
+ 
+/// Lightweight rolling-average performance monitor for the inference pipeline.
 ///
-/// The monitor tracks:
-/// - dispatched frames: frames actually sent to inference
-/// - latest-frame refreshes: pending-frame replacements while inference is busy
-/// - dropped frames: frames discarded before copying/processing
-/// - inference latency
-/// - completed detection FPS
+/// Records frame latencies and exposes [avgLatencyMs] and [fps] for the
+/// debug overlay.  All methods are no-ops in release builds.
 class PerfMonitor {
-  PerfMonitor._();
-
-  static final List<int> _dispatchTimes = <int>[];
-  static final List<int> _completionTimes = <int>[];
-  static final List<int> _inferenceTimes = <int>[];
-
-  static int _latestFrameRefreshes = 0;
-  static int _droppedFrames = 0;
-  static DateTime? _lastReport;
-
-  static void frameDispatched() {
+  PerfMonitor({this.windowSize = 30});
+ 
+  final int windowSize;
+ 
+  final Queue<int> _latencies = Queue();
+  DateTime? _frameStart;
+  int _droppedFrames = 0;
+ 
+  // ── Recording ─────────────────────────────────────────────────────────────
+ 
+  void frameStarted() {
     if (!kDebugMode) return;
-    _dispatchTimes.add(DateTime.now().millisecondsSinceEpoch);
-    if (_dispatchTimes.length > 60) _dispatchTimes.removeAt(0);
-    _maybeReport();
+    _frameStart = DateTime.now();
   }
-
-  static void latestFrameQueued() {
+ 
+  void frameCompleted() {
     if (!kDebugMode) return;
-    _latestFrameRefreshes++;
+    if (_frameStart == null) return;
+    final ms = DateTime.now().difference(_frameStart!).inMilliseconds;
+    _frameStart = null;
+    _latencies.addLast(ms);
+    if (_latencies.length > windowSize) _latencies.removeFirst();
   }
-
-  static void frameDropped() {
+ 
+  void frameDropped() {
     if (!kDebugMode) return;
     _droppedFrames++;
   }
-
-  static void inferenceCompleted(int latencyMs) {
-    if (!kDebugMode) return;
-    _inferenceTimes.add(latencyMs);
-    if (_inferenceTimes.length > 30) _inferenceTimes.removeAt(0);
-
-    _completionTimes.add(DateTime.now().millisecondsSinceEpoch);
-    if (_completionTimes.length > 30) _completionTimes.removeAt(0);
-
-    _maybeReport();
-  }
-
-  static void _maybeReport() {
-    final now = DateTime.now();
-    if (_lastReport != null && now.difference(_lastReport!).inSeconds < 5) {
-      return;
-    }
-    _lastReport = now;
-
-    final detectionFps = _fpsFrom(_completionTimes);
-    final dispatchFps = _fpsFrom(_dispatchTimes);
-    final avgInference = _inferenceTimes.isEmpty
-        ? '?'
-        : (_inferenceTimes.reduce((a, b) => a + b) / _inferenceTimes.length)
-            .toStringAsFixed(0);
-
-    debugPrint(
-      '[PerfMonitor] dispatch≈$dispatchFps fps | '
-      'detections≈$detectionFps fps | '
-      'inference≈${avgInference}ms | '
-      'latest=$_latestFrameRefreshes | '
-      'dropped=$_droppedFrames',
-    );
-  }
-
-  static String _fpsFrom(List<int> samples) {
-    if (samples.length < 2) return '?';
-    final gaps = <int>[];
-    for (int i = 1; i < samples.length; i++) {
-      gaps.add(samples[i] - samples[i - 1]);
-    }
-    final avgGap = gaps.reduce((a, b) => a + b) / gaps.length;
-    return avgGap > 0 ? (1000 / avgGap).toStringAsFixed(1) : '?';
-  }
-
-  static void reset() {
-    _dispatchTimes.clear();
-    _completionTimes.clear();
-    _inferenceTimes.clear();
-    _latestFrameRefreshes = 0;
+ 
+  void reset() {
+    _latencies.clear();
+    _frameStart = null;
     _droppedFrames = 0;
-    _lastReport = null;
   }
+ 
+  // ── Stats ──────────────────────────────────────────────────────────────────
+ 
+  double get avgLatencyMs {
+    if (_latencies.isEmpty) return 0;
+    return _latencies.reduce((a, b) => a + b) / _latencies.length;
+  }
+ 
+  double get fps {
+    final avg = avgLatencyMs;
+    return avg > 0 ? 1000 / avg : 0;
+  }
+ 
+  int get droppedFrames => _droppedFrames;
 }

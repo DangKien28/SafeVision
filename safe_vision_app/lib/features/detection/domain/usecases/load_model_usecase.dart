@@ -1,15 +1,13 @@
-import '../repositories/detection_repository.dart';
 import '../../../../core/usecases/usecase.dart';
-
-/// Loads the TFLite model and spawns the inference isolate when detection
-/// starts.
+import '../repositories/detection_repository.dart';
+ 
+/// Loads the TFLite model via the repository.
 ///
-/// Keeping this as a separate use case ensures that [DetectionBloc] depends
-/// only on domain abstractions instead of the data-layer implementation.
+/// Always call via `usecase.call(const NoParams())` — no convenience wrapper.
 class LoadModelUsecase implements UseCase<void, NoParams> {
-  final DetectionRepository _repository;
   LoadModelUsecase(this._repository);
-
+  final DetectionRepository _repository;
+ 
   @override
   Future<void> call(NoParams params) => _repository.loadModel();
 }

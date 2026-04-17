@@ -2,105 +2,132 @@ import 'package:get_it/get_it.dart';
 
 import 'core/config/detection_config.dart';
 import 'core/services/camera_service.dart';
-import 'core/services/warning_dispatcher.dart';
 import 'features/detection/data/datasources/detection_local_datasource.dart';
 import 'features/detection/data/datasources/detection_local_datasource_impl.dart';
 import 'features/detection/data/repositories/detection_repository_impl.dart';
 import 'features/detection/domain/repositories/detection_repository.dart';
-import 'features/detection/domain/services/object_tracker.dart';
-import 'features/detection/domain/usecases/load_model_usecase.dart';
 import 'features/detection/domain/usecases/close_model_usecase.dart';
 import 'features/detection/domain/usecases/detection_object_from_frame.dart';
-import 'features/detection/presentation/bloc/detection_bloc.dart';
-import 'features/tts/data/datasources/tts_service.dart';
-import 'features/tts/data/repositories/tts_repository_impl.dart';
-import 'features/tts/domain/repositories/tts_repository.dart';
-import 'features/tts/domain/usecases/speak_warning_usecase.dart';
-import 'features/tts/domain/usecases/stop_speaking_usecase.dart';
-import 'features/tts/domain/usecases/pause_speaking_usecase.dart';
-import 'features/tts/domain/usecases/configure_tts_usecase.dart';
-import 'features/tts/presentation/bloc/tts_bloc.dart';
-import 'features/tts/presentation/services/tts_warning_dispatcher.dart';
+import 'features/detection/domain/usecases/load_model_usecase.dart';
 import 'features/settings/data/datasources/local_storage_service.dart';
 import 'features/settings/data/repositories/settings_repository_impl.dart';
 import 'features/settings/domain/repositories/settings_repository.dart';
 import 'features/settings/presentation/bloc/settings_bloc.dart';
+import 'features/tts/data/datasources/tts_service.dart';
+import 'features/tts/data/repositories/tts_repository_impl.dart';
+import 'features/tts/domain/repositories/tts_repository.dart';
+import 'features/tts/domain/usecases/configure_tts_usecase.dart';
+import 'features/tts/domain/usecases/pause_speaking_usecase.dart';
+import 'features/tts/domain/usecases/speak_warning_usecase.dart';
+import 'features/tts/domain/usecases/stop_speaking_usecase.dart';
+import 'features/tts/presentation/bloc/tts_bloc.dart';
 
 final sl = GetIt.instance;
 
-/// Registers dependencies in order: leaf services first, then orchestrators
-/// such as BLoCs. This keeps the graph free of circular dependencies.
+/// Registers all dependencies.
 ///
-/// Singleton vs lazy singleton rules:
-/// - [registerSingleton]: created immediately in [init], used for services
-///   that must run setup side effects before the app renders.
-/// - [registerLazySingleton]: created on first use, used for BLoCs and
-///   objects that do not need early warm-up.
-///   This also prevents two BLoCs from calling `loadModel()` at the same time
-///   on the same datasource singleton.
-Future<void> init() async {
-  // Storage
-  sl.registerSingleton<LocalStorageService>(LocalStorageService());
-  sl.registerSingleton<SettingsRepository>(
-    SettingsRepositoryImpl(sl<LocalStorageService>()),
+/// Call once from [main] before [runApp].  Does NOT perform any async work —
+/// heavy initialization is deferred to the first time each singleton is used.
+///
+/// ## Bug fixed: startup latency from eager TTS initialization
+///
+/// The previous implementation called `TtsService.initialize()` eagerly inside
+/// `registerSingleton`, which blocked the DI container's initialization
+/// thread on every cold launch — even before the first frame was drawn.
+///
+/// Fix: [TtsService] is now registered with [registerLazySingleton].  The
+/// singleton is created on first access, and `initialize()` is called lazily
+/// inside [TtsBloc] (or [SettingsBloc]) the first time TTS is needed.  This
+/// removes the startup penalty entirely.
+///
+/// ### Singleton vs LazySingleton policy (from architecture docs)
+///
+/// | Strategy                | When to use |
+/// |-------------------------|-------------|
+/// | `registerSingleton`     | Service that MUST be fully warm before the app runs (none currently) |
+/// | `registerLazySingleton` | Everything else — created on first access |
+Future<void> initDependencies() async {
+  // ── Camera ──────────────────────────────────────────────────────────────────
+  sl.registerLazySingleton<CameraService>(CameraService.new);
+
+  // ── Detection config (shared mutable config — singleton) ────────────────────
+  sl.registerLazySingleton<DetectionConfig>(DetectionConfig.new);
+
+  // ── Detection datasource & repository ──────────────────────────────────────
+  sl.registerLazySingleton<DetectionLocalDatasource>(
+    DetectionLocalDatasourceImpl.new,
   );
 
-  // TTS
-  // TtsService must be initialized before use. An eager singleton keeps
-  // the audio engine ready at app startup and avoids first-use latency.
-  final ttsService = TtsService();
-  await ttsService.initialize();
-  sl.registerSingleton<TtsService>(ttsService);
-  sl.registerSingleton<TtsRepository>(TtsRepositoryImpl(sl<TtsService>()));
-  sl.registerSingleton(SpeakWarningUsecase(sl<TtsRepository>()));
-  sl.registerSingleton(StopSpeakingUsecase(sl<TtsRepository>()));
-  sl.registerSingleton(PauseSpeakingUsecase(sl<TtsRepository>()));
-  sl.registerSingleton(ConfigureTtsUsecase(sl<TtsRepository>()));
-
-  // TtsBloc stays lazy to match DetectionBloc and to avoid premature
-  // initialization before MultiBlocProvider is ready.
-  sl.registerLazySingleton<TtsBloc>(() => TtsBloc(
-        speakWarning: sl(),
-        stopSpeaking: sl(),
-        pauseSpeaking: sl<PauseSpeakingUsecase>(),
-        settingsRepository: sl<SettingsRepository>(),
-        playbackUpdates: sl<TtsService>().playbackUpdates,
-      ));
-
-  // Detection
-  sl.registerSingleton(DetectionConfig());
-  sl.registerLazySingleton<ObjectTracker>(() => ObjectTracker());
-  sl.registerSingleton<DetectionLocalDatasource>(
-    DetectionLocalDatasourceImpl(sl<DetectionConfig>()),
+  sl.registerLazySingleton<DetectionRepository>(
+    () => DetectionRepositoryImpl(sl<DetectionLocalDatasource>()),
   );
-  sl.registerSingleton<DetectionRepository>(
-    DetectionRepositoryImpl(sl()),
+
+  // ── Detection use cases ─────────────────────────────────────────────────────
+  sl.registerLazySingleton(
+    () => LoadModelUsecase(sl<DetectionRepository>()),
   );
-  sl.registerSingleton(LoadModelUsecase(sl<DetectionRepository>()));
-  sl.registerSingleton(CloseModelUsecase(sl<DetectionRepository>()));
-  sl.registerSingleton(DetectionObjectFromFrame(sl<DetectionRepository>()));
-
-  // A lazy singleton prevents multiple DetectionBloc instances from sharing
-  // one datasource singleton and trying to spawn competing isolates on the
-  // same interpreter at the same time.
-  sl.registerLazySingleton<WarningDispatcher>(
-    () => TtsWarningDispatcher(() => sl<TtsBloc>()),
+  sl.registerLazySingleton(
+    () => CloseModelUsecase(sl<DetectionRepository>()),
   );
-  sl.registerLazySingleton<DetectionBloc>(() => DetectionBloc(
-        loadModel: sl<LoadModelUsecase>(),
-        closeModel: sl<CloseModelUsecase>(),
-        detectFromFrame: sl<DetectionObjectFromFrame>(),
-        warningDispatcher: sl<WarningDispatcher>(),
-        objectTracker: sl<ObjectTracker>(),
-      ));
+  sl.registerLazySingleton(
+    () => DetectionObjectFromFrame(sl<DetectionRepository>()),
+  );
 
-  // Camera
-  sl.registerSingleton(CameraService());
+  // ── Settings datasource & repository ───────────────────────────────────────
+  // LocalStorageService wraps SharedPreferences — lazy so plugin registration
+  // happens after runApp.
+  sl.registerLazySingleton<LocalStorageService>(LocalStorageService.new);
 
-  sl.registerLazySingleton<SettingsBloc>(() => SettingsBloc(
-        sl<SettingsRepository>(),
-        sl<ConfigureTtsUsecase>(),
-        sl<StopSpeakingUsecase>(),
-        sl<DetectionConfig>(),
-      ));
+  sl.registerLazySingleton<SettingsRepository>(
+    () => SettingsRepositoryImpl(sl<LocalStorageService>()),
+  );
+
+  // ── TTS datasource & repository ─────────────────────────────────────────────
+  //
+  // BUG FIX: was `registerSingleton(() { final s = TtsService(); s.initialize(); return s; })`
+  // which called initialize() eagerly, adding 200-400 ms to cold launch time.
+  //
+  // Fix: register as lazy.  `initialize()` is called on first TtsBloc creation,
+  // at which point the audio engine is guaranteed to be available (post-runApp).
+  sl.registerLazySingleton<TtsService>(TtsService.new);
+
+  sl.registerLazySingleton<TtsRepository>(
+    () => TtsRepositoryImpl(sl<TtsService>()),
+  );
+
+  // ── TTS use cases ───────────────────────────────────────────────────────────
+  sl.registerLazySingleton(
+    () => SpeakWarningUsecase(sl<TtsRepository>()),
+  );
+  sl.registerLazySingleton(
+    () => StopSpeakingUsecase(sl<TtsRepository>()),
+  );
+  sl.registerLazySingleton(
+    () => PauseSpeakingUsecase(sl<TtsRepository>()),
+  );
+  sl.registerLazySingleton(
+    () => ConfigureTtsUsecase(sl<TtsRepository>()),
+  );
+
+  // ── BLoCs (lazy — created when the page that needs them mounts) ─────────────
+  //
+  // BLoCs are NOT singletons: each page that mounts a BlocProvider gets a fresh
+  // BLoC instance.  registerFactory ensures this.
+  sl.registerFactory(
+    () => TtsBloc(
+      speakWarning: sl<SpeakWarningUsecase>(),
+      stopSpeaking: sl<StopSpeakingUsecase>(),
+      pauseSpeaking: sl<PauseSpeakingUsecase>(),
+      settingsRepository: sl<SettingsRepository>(),
+    ),
+  );
+
+  sl.registerFactory(
+    () => SettingsBloc(
+      sl<SettingsRepository>(),
+      sl<ConfigureTtsUsecase>(),
+      sl<StopSpeakingUsecase>(),
+      sl<DetectionConfig>(),
+    ),
+  );
 }

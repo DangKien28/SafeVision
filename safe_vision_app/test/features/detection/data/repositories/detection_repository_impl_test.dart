@@ -7,8 +7,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
-import 'package:safe_vision_app/core/services/camera_service.dart'
-    show CameraFrame;
+import 'package:safe_vision_app/core/models/camera_frame.dart';
 import 'package:safe_vision_app/features/detection/data/datasources/detection_local_datasource.dart';
 import 'package:safe_vision_app/features/detection/data/repositories/detection_repository_impl.dart';
 
