@@ -11,12 +11,31 @@ import '../../../../features/tts/domain/usecases/stop_speaking_usecase.dart';
 import 'tts_event.dart';
 import 'tts_state.dart';
 
+// ── Private internal events ───────────────────────────────────────────────────
+
 class _TtsErrorReceived extends TtsEvent {
   const _TtsErrorReceived(this.message);
   final String message;
   @override
   List<Object?> get props => [message];
 }
+
+// FIX (Bug 9): New internal event to reflect that the native engine has
+// confirmed speech started.  Previously the code dispatched a public TtsSpeak
+// event on receipt of TtsPlaybackStatus.started, which caused the BLoC to
+// call speakWarning() again → the engine received a second speak() call →
+// reported started again → infinite feedback loop.
+//
+// The fix routes the "started" signal through a private event that ONLY updates
+// state to TtsSpeaking(text) without triggering another speakWarning() call.
+class _TtsPlaybackStarted extends TtsEvent {
+  const _TtsPlaybackStarted(this.text);
+  final String text;
+  @override
+  List<Object?> get props => [text];
+}
+
+// ── TtsBloc ───────────────────────────────────────────────────────────────────
 
 class TtsBloc extends Bloc<TtsEvent, TtsState> {
   TtsBloc({
@@ -33,11 +52,10 @@ class TtsBloc extends Bloc<TtsEvent, TtsState> {
     on<TtsSpeak>(_onSpeak);
     on<TtsStop>(_onStop);
     on<TtsPause>(_onPause);
-    // FIX 2: register handler for the private error event
     on<_TtsErrorReceived>(_onErrorReceived);
+    // FIX (Bug 9): register handler for the new playback-started internal event.
+    on<_TtsPlaybackStarted>(_onPlaybackStarted);
 
-    // Optional stream from the native engine so the bloc can mirror the real
-    // playback state (started / stopped by the OS).
     if (playbackUpdates != null) {
       _playbackSub = playbackUpdates.listen(_onPlaybackUpdate);
     }
@@ -57,7 +75,6 @@ class TtsBloc extends Bloc<TtsEvent, TtsState> {
 
     if (!voiceEnabled) {
       await _stopSpeaking();
-      // Guard: don't re-emit TtsStopped if already stopped.
       if (state is! TtsStopped) emit(const TtsStopped());
       return;
     }
@@ -97,19 +114,23 @@ class TtsBloc extends Bloc<TtsEvent, TtsState> {
     emit(TtsError(event.message));
   }
 
+  void _onPlaybackStarted(_TtsPlaybackStarted event, Emitter<TtsState> emit) {
+    emit(TtsSpeaking(event.text));
+  }
+
   // ── Playback stream ────────────────────────────────────────────────────────
 
   void _onPlaybackUpdate(TtsPlaybackUpdate update) {
     switch (update.status) {
       case TtsPlaybackStatus.started:
-        if (update.text != null) add(TtsSpeak(update.text!, immediate: false));
+        if (update.text != null && !isClosed) {
+          add(_TtsPlaybackStarted(update.text!));
+        }
         break;
       case TtsPlaybackStatus.stopped:
-        add(const TtsStop());
+        if (!isClosed) add(const TtsStop());
         break;
       case TtsPlaybackStatus.error:
-        // FIX 2: route through a registered on<> handler instead of calling
-        // emit() directly (which is @visibleForTesting outside handlers).
         if (!isClosed) {
           add(_TtsErrorReceived(update.error ?? 'playback error'));
         }

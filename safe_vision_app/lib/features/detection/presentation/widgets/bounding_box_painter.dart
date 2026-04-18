@@ -7,12 +7,6 @@ import '../../domain/entities/tracked_detection.dart';
 
 // ── SmoothedBox ───────────────────────────────────────────────────────────────
 
-/// An immutable snapshot of a tracked bounding box ready for rendering.
-///
-/// Coordinates are normalised [0, 1] relative to the preview widget dimensions.
-/// [missedFrames] is the number of consecutive frames since the underlying
-/// detection was last matched to this track; the painter uses it to fade the
-/// box out smoothly before the track expires.
 class SmoothedBox {
   const SmoothedBox({
     required this.left,
@@ -24,8 +18,6 @@ class SmoothedBox {
     required this.missedFrames,
   });
 
-  /// Converts an [ObjectTracker]-produced [TrackedDetection] into the
-  /// rendering-ready [SmoothedBox] format that [BoundingBoxPainter] expects.
   factory SmoothedBox.fromTrackedDetection(TrackedDetection td) {
     final box = td.detection.boundingBox;
     return SmoothedBox(
@@ -50,27 +42,6 @@ class SmoothedBox {
 
 // ── BoxTracker ────────────────────────────────────────────────────────────────
 
-/// Matches incoming [DetectionObject] lists to persistent tracks via IoU,
-/// applies exponential position smoothing, and produces [SmoothedBox] lists
-/// for the painter.
-///
-/// ## Smoothing
-///
-/// Position is blended each frame:
-///   `smoothed = α * detected + (1-α) * tracked`
-/// where α = [AppConstants.trackingSmoothingAlpha].
-///
-/// ## Age-based expiry
-///
-/// Tracks that have not been matched for [AppConstants.trackingMaxAgeMs]
-/// milliseconds are removed from the active set.  The [now] parameter on
-/// [update] can be injected in tests to control the clock.
-///
-/// ## version counter
-///
-/// An O(1) monotonic integer that increments on every [update] and [clear].
-/// [BoundingBoxPainter.shouldRepaint] compares versions directly instead of
-/// iterating the box list.
 class BoxTracker {
   BoxTracker();
 
@@ -82,8 +53,6 @@ class BoxTracker {
 
   int get version => _version;
 
-  /// Matches [detections] against active tracks and returns the current
-  /// [SmoothedBox] list.  Pass [now] in tests to control the clock.
   List<SmoothedBox> update(
     List<DetectionObject> detections, {
     DateTime? now,
@@ -91,15 +60,13 @@ class BoxTracker {
     final time = now ?? DateTime.now();
     _version++;
 
-    // ── 1. Age-out stale tracks ─────────────────────────────────────────────
     final maxAge = AppConstants.trackingMaxAgeMs;
     _tracks.removeWhere(
       (_, t) => time.difference(t.lastSeen).inMilliseconds > maxAge,
     );
 
-    // ── 2. Greedy IoU matching ──────────────────────────────────────────────
-    final matched = <int>{}; // detection indices
-    final updatedTracks = <int>{}; // track IDs
+    final matched = <int>{};
+    final updatedTracks = <int>{};
 
     for (final entry in _tracks.entries) {
       final track = entry.value;
@@ -116,19 +83,16 @@ class BoxTracker {
       }
 
       if (bestIdx >= 0) {
-        // Match found: smooth position and reset miss counter.
         matched.add(bestIdx);
         updatedTracks.add(entry.key);
         final det = detections[bestIdx];
         track.smooth(det.boundingBox, time);
         track.missedFrames = 0;
       } else {
-        // No match: increment miss counter.
         track.missedFrames++;
       }
     }
 
-    // ── 3. Spawn new tracks for unmatched detections ────────────────────────
     for (int i = 0; i < detections.length; i++) {
       if (matched.contains(i)) continue;
       final det = detections[i];
@@ -142,17 +106,13 @@ class BoxTracker {
       _nextTrackId++;
     }
 
-    // ── 4. Build output ─────────────────────────────────────────────────────
     return _tracks.values.map((t) => t.toSmoothedBox()).toList();
   }
 
-  /// Clears all tracks and increments the version.
   void clear() {
     _tracks.clear();
     _version++;
   }
-
-  // ── IoU helper ──────────────────────────────────────────────────────────────
 
   static double _iou(BoundingBox a, BoundingBox b) {
     final ix = _overlap(a.left, a.right, b.left, b.right);
@@ -174,18 +134,17 @@ class _Track {
     required BoundingBox box,
     required this.label,
     required this.firstSeen,
-    required this.lastSeen, // FIX 13: was `required DateTime lastSeen`
+    required this.lastSeen,
   })  : _left = box.left,
         _top = box.top,
         _width = box.width,
         _height = box.height,
         missedFrames = 0;
-  // FIX 13: removed `lastSeen = lastSeen,` from init list
 
   final int id;
   final String label;
   final DateTime firstSeen;
-  DateTime lastSeen; // FIX 13: must remain mutable (updated in smooth())
+  DateTime lastSeen;
   int missedFrames;
 
   double _left;
@@ -193,8 +152,6 @@ class _Track {
   double _width;
   double _height;
 
-  /// Synthesised [BoundingBox] view of the current smoothed position,
-  /// used by [BoxTracker._iou] for greedy matching.
   BoundingBox get box => BoundingBox(
         left: _left,
         top: _top,
@@ -204,7 +161,6 @@ class _Track {
 
   static const double _alpha = AppConstants.trackingSmoothingAlpha;
 
-  /// Exponential smoothing toward the new detection position.
   void smooth(BoundingBox detected, DateTime now) {
     _left = _alpha * detected.left + (1 - _alpha) * _left;
     _top = _alpha * detected.top + (1 - _alpha) * _top;
@@ -233,13 +189,21 @@ class _Track {
 /// * [shouldRepaint] is O(1): it compares [version] integers, never iterates
 ///   the box list.
 /// * [TextPainter] instances are cached in the static [_textCache] keyed by
-///   label string.  Cache entries are removed in [dispose] for every label
-///   that this painter instance owns, preventing unbounded growth.
+///   label string, bounded to [_maxCacheEntries] entries.  When the limit is
+///   reached the entire cache is cleared to prevent unbounded memory growth
+///   across long sessions (Bug 2 fix).
 ///
-/// ## Testing
+/// ## Memory management (Bug 2)
 ///
-/// Call [clearCacheForTesting] in `tearDown` to reset the static cache between
-/// test groups so cached [TextPainter] state does not cross-contaminate tests.
+/// The painter is rebuilt on every frame by [ValueListenableBuilder].  Because
+/// [CustomPainter] has no framework-managed `dispose()` lifecycle, the static
+/// cache could grow without bound over a long session.  Two mechanisms guard
+/// against this:
+///   1. [_maxCacheEntries] cap — cache is cleared when it exceeds this limit.
+///   2. [dispose()] / [clearCacheForTesting()] — explicit eviction helpers.
+///      [dispose()] removes only the labels owned by this painter instance and
+///      should be called from [State.dispose] when a wrapping StatefulWidget
+///      is used (see camera_view_page.dart).
 class BoundingBoxPainter extends CustomPainter {
   BoundingBoxPainter({
     required this.boxes,
@@ -255,15 +219,21 @@ class BoundingBoxPainter extends CustomPainter {
 
   static final Map<String, TextPainter> _textCache = {};
 
-  /// Removes cache entries for all labels owned by this painter.
-  /// Call in [CustomPainter.dispose] (wired via [WidgetState.dispose]).
+  /// Maximum number of distinct label entries kept in the static cache.
+  /// When this limit is reached the cache is cleared before adding new entries.
+  /// The YOLOv8 model used by SafeVision has 13 labels, so 64 entries is a
+  /// generous upper bound that still prevents runaway accumulation.
+  static const int _maxCacheEntries = 64;
+
+  /// Removes cache entries for all labels owned by this painter instance.
+  /// Wire this into [State.dispose] when the painter is held by a StatefulWidget.
   void dispose() {
     for (final box in boxes) {
       _textCache.remove(box.label);
     }
   }
 
-  /// Clears the entire static cache.  Call in `tearDown` inside unit / widget
+  /// Clears the entire static cache.  Call in `tearDown` inside unit/widget
   /// tests to avoid state leakage between test groups.
   static void clearCacheForTesting() => _textCache.clear();
 
@@ -301,8 +271,6 @@ class BoundingBoxPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (boxes.isEmpty) return;
-
-    // Guard against a zero-sized canvas (e.g. before layout completes).
     if (size.width <= 0 || size.height <= 0) return;
 
     if (mirrorHorizontal) {
@@ -321,7 +289,6 @@ class BoundingBoxPainter extends CustomPainter {
   // ── Per-box rendering ─────────────────────────────────────────────────────
 
   void _paintBox(Canvas canvas, Size size, SmoothedBox box) {
-    // Clamp to visible area — prevents out-of-bounds boxes from crashing.
     final left = (box.left.clamp(0.0, 1.0) * size.width);
     final top = (box.top.clamp(0.0, 1.0) * size.height);
     final right = ((box.left + box.width).clamp(0.0, 1.0) * size.width);
@@ -330,7 +297,6 @@ class BoundingBoxPainter extends CustomPainter {
     final rectW = right - left;
     final rectH = bottom - top;
 
-    // Skip boxes that are too small or have extreme aspect ratios.
     final area = (rectW / size.width) * (rectH / size.height);
     if (area < AppConstants.minRenderableBoxArea) return;
     final aspectRatio = rectW > 0 && rectH > 0
@@ -339,23 +305,18 @@ class BoundingBoxPainter extends CustomPainter {
     if (aspectRatio > AppConstants.maxRenderableAspectRatio) return;
 
     final rect = Rect.fromLTRB(left, top, right, bottom);
-
-    // Per-box opacity fades out as missedFrames grows.
     final opacity = (1.0 - box.missedFrames * 0.3).clamp(0.2, 1.0);
     final color = _colorForLabel(box.label).withValues(alpha: opacity);
 
-    // ── Border ──────────────────────────────────────────────────────────────
     final borderPaint = Paint()
       ..color = color
       ..strokeWidth = 3.0
       ..style = PaintingStyle.stroke;
     canvas.drawRect(rect, borderPaint);
 
-    // ── Corner accents ───────────────────────────────────────────────────────
     const cornerLen = 16.0;
     _drawCorner(canvas, borderPaint, rect, cornerLen);
 
-    // ── Label badge ──────────────────────────────────────────────────────────
     final tp = _getOrCreateTextPainter(box.label, color, opacity);
     final labelW = tp.width + 12;
     final labelH = tp.height + 6;
@@ -373,16 +334,12 @@ class BoundingBoxPainter extends CustomPainter {
   // ── Corner accent helper ──────────────────────────────────────────────────
 
   void _drawCorner(Canvas canvas, Paint paint, Rect r, double len) {
-    // Top-left
     canvas.drawLine(r.topLeft, r.topLeft.translate(len, 0), paint);
     canvas.drawLine(r.topLeft, r.topLeft.translate(0, len), paint);
-    // Top-right
     canvas.drawLine(r.topRight, r.topRight.translate(-len, 0), paint);
     canvas.drawLine(r.topRight, r.topRight.translate(0, len), paint);
-    // Bottom-left
     canvas.drawLine(r.bottomLeft, r.bottomLeft.translate(len, 0), paint);
     canvas.drawLine(r.bottomLeft, r.bottomLeft.translate(0, -len), paint);
-    // Bottom-right
     canvas.drawLine(r.bottomRight, r.bottomRight.translate(-len, 0), paint);
     canvas.drawLine(r.bottomRight, r.bottomRight.translate(0, -len), paint);
   }
@@ -394,8 +351,10 @@ class BoundingBoxPainter extends CustomPainter {
     Color color,
     double opacity,
   ) {
-    // Cache by label only; color / opacity are set on the existing painter
-    // each call so we do not proliferate cache entries per opacity value.
+    if (_textCache.length >= _maxCacheEntries) {
+      _textCache.clear();
+    }
+
     if (!_textCache.containsKey(label)) {
       final tp = TextPainter(textDirection: TextDirection.ltr);
       _textCache[label] = tp;
@@ -420,19 +379,19 @@ class BoundingBoxPainter extends CustomPainter {
   // ── Deterministic label colour ────────────────────────────────────────────
 
   static const List<Color> _palette = [
-    Color(0xFF00E5FF), // cyan
-    Color(0xFF69FF47), // lime
-    Color(0xFFFF6D00), // deep orange
-    Color(0xFFE040FB), // purple
-    Color(0xFFFFD740), // amber
-    Color(0xFF40C4FF), // light blue
-    Color(0xFF69FFCC), // teal
-    Color(0xFFFF4081), // pink
-    Color(0xFFB2FF59), // light green
-    Color(0xFFFFAB40), // orange
-    Color(0xFF80D8FF), // sky blue
-    Color(0xFFEA80FC), // light purple
-    Color(0xFFCCFF90), // light lime
+    Color(0xFF00E5FF),
+    Color(0xFF69FF47),
+    Color(0xFFFF6D00),
+    Color(0xFFE040FB),
+    Color(0xFFFFD740),
+    Color(0xFF40C4FF),
+    Color(0xFF69FFCC),
+    Color(0xFFFF4081),
+    Color(0xFFB2FF59),
+    Color(0xFFFFAB40),
+    Color(0xFF80D8FF),
+    Color(0xFFEA80FC),
+    Color(0xFFCCFF90),
   ];
 
   static Color _colorForLabel(String label) =>

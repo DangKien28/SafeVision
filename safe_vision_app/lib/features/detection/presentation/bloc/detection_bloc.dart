@@ -15,9 +15,6 @@ import 'detection_state.dart';
 
 // ── Warning callback ──────────────────────────────────────────────────────────
 
-/// Signature for the callback that the BLoC fires when a warning must be
-/// announced.  The call site (typically the page widget) is responsible for
-/// dispatching to TtsBloc and triggering haptic feedback.
 typedef DetectionWarningCallback = void Function({
   required String text,
   required bool immediate,
@@ -26,11 +23,10 @@ typedef DetectionWarningCallback = void Function({
 
 // ── Track stability bookkeeping ───────────────────────────────────────────────
 
-/// Minimum number of consecutive frames a track must be seen before we
-/// announce it.  Prevents one-frame false positives from spamming TTS.
+/// Minimum consecutive frames a track must be seen before announcing.
 const int _kStabilityFrames = 2;
 
-/// Per-track counters used for warning throttle logic.
+/// Per-track warning throttle state.
 class _TrackInfo {
   int seenCount = 0;
   bool warned = false;
@@ -38,51 +34,6 @@ class _TrackInfo {
 
 // ── DetectionBloc ─────────────────────────────────────────────────────────────
 
-/// Drives the object-detection pipeline.
-///
-/// ## State machine
-///
-///   DetectionInitial
-///     → (DetectionStarted) → DetectionLoading
-///       → DetectionModelReady  [loadModel succeeded]
-///       → DetectionFailure     [loadModel threw]
-///
-///   DetectionModelReady
-///     → (DetectionFrameReceived) → DetectionSuccess | (silent on error)
-///     → (DetectionStopped)       → DetectionInitial
-///
-/// ## Bugs fixed
-///
-/// ### 1 – Single source of truth for model readiness
-///
-/// The previous implementation mixed two independent boolean flags
-/// (`_modelReady` field and `state is DetectionModelReady`) to decide whether
-/// a frame could be processed.  This "split-brain" pattern can produce:
-///   - frames processed while the model is being torn down (stale flag),
-///   - frames silently dropped while the model is ready (flag not yet set).
-///
-/// Fix: only the BLoC **state** is authoritative.  All guards read
-/// `state is DetectionModelReady`.  The `_modelReady` field is removed.
-///
-/// ### 2 – `onDone` guaranteed via finally
-///
-/// When `droppable()` drops a [DetectionFrameReceived] event, the event
-/// handler never runs, so the `onDone` callback inside the event was never
-/// called.  This permanently stalled the camera stream because
-/// [CameraService] would never release `_isProcessingFrame`.
-///
-/// Fix: [DetectionFrameReceived] still carries `onDone`, but the bloc
-/// handler wraps the *entire* processing path (including the drop-guard) in a
-/// try/finally so `onDone` is always called — regardless of whether the frame
-/// was processed, dropped, or threw.
-///
-/// ### 3 – Lifecycle race: stale results after DetectionStopped
-///
-/// If inference completed after [DetectionStopped] was handled, the bloc
-/// emitted a [DetectionSuccess] into an "Initial" state, confusing the UI.
-///
-/// Fix: results are only emitted if `state is DetectionModelReady` at the
-/// point the inference future resolves.
 class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
   DetectionBloc({
     required LoadModelUsecase loadModel,
@@ -96,9 +47,6 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
         super(const DetectionInitial()) {
     on<DetectionStarted>(_onStarted, transformer: sequential());
     on<DetectionStopped>(_onStopped, transformer: sequential());
-
-    // droppable: if inference is in flight, additional frames are silently
-    // discarded.  onDone is still called via the wrapper below.
     on<DetectionFrameReceived>(_onFrameReceived, transformer: droppable());
   }
 
@@ -111,12 +59,13 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
   bool _modelReleased = true;
   int _frameEpoch = 0;
 
-  /// Temporal tracker that smooths positions and assigns stable track IDs.
-  /// Reset (cleared) on every [DetectionStarted] and [DetectionStopped].
   final ObjectTracker _tracker = ObjectTracker();
 
-  /// Per-track stability counters.  Reset on every [DetectionStarted].
-  final Map<int, _TrackInfo> _trackInfos = {};
+  // FIX (Bug 7): keyed by label STRING, not label.hashCode.
+  // Hashing can collide — e.g. "person".hashCode == "car".hashCode in theory —
+  // causing two distinct objects to share the same _TrackInfo entry, which
+  // would suppress warnings for one of them entirely.
+  final Map<String, _TrackInfo> _trackInfos = {};
 
   bool get _stateAllowsFrames =>
       state is DetectionModelReady || state is DetectionSuccess;
@@ -182,21 +131,14 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
     });
   }
 
-  /// Processes one camera frame.
-  ///
-  /// The `onDone` callback from [event] is called unconditionally in a
-  /// `finally` block — this is the contract that [CameraService] relies on to
-  /// release the frame lock.
   Future<void> _onFrameReceived(
     DetectionFrameReceived event,
     Emitter<DetectionState> emit,
   ) async {
-    // BUG FIX 1: single source of truth — only the state tells us whether the
-    // model is ready.  If we are not in ModelReady, release the lock and bail.
     final canProcessFrame =
         _acceptFrames || (_modelReleased && _stateAllowsFrames);
     if (!canProcessFrame) {
-      event.onDone(); // BUG FIX 2: always release the camera lock
+      event.onDone();
       return;
     }
 
@@ -208,13 +150,10 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
         rotationDegrees: event.rotationDegrees,
       );
 
-      // BUG FIX 3: lifecycle race — discard results if we are no longer in
-      // ModelReady (e.g., DetectionStopped arrived while inference was running).
       final canEmitResult =
           _acceptFrames || (_modelReleased && _stateAllowsFrames);
       if (!canEmitResult || frameEpoch != _frameEpoch) return;
 
-      // Update temporal tracker for stable IDs and smooth positions.
       final tracked = _tracker.update(detections);
 
       emit(DetectionSuccess(
@@ -225,12 +164,8 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
 
       _handleWarnings(detections);
     } catch (e) {
-      // Inference errors are silenced: a single bad frame is not fatal.  The
-      // camera stream continues on the next frame.
       debugPrint('[DetectionBloc] inference error (frame skipped): $e');
     } finally {
-      // BUG FIX 2: onDone is ALWAYS called, even on error or early return,
-      // so CameraService._isProcessingFrame is always released.
       event.onDone();
     }
   }
@@ -240,24 +175,24 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
   void _handleWarnings(List<DetectionObject> detections) {
     if (detections.isEmpty) return;
 
-    // Age out tracks that are no longer detected.
-    final currentIds = detections.map((d) => d.label.hashCode).toSet();
-    _trackInfos.removeWhere((id, _) => !currentIds.contains(id));
+    // FIX (Bug 7): use label string as key instead of label.hashCode.
+    // hashCode can collide across different label strings, merging track state
+    // for unrelated objects and silently suppressing warnings for one of them.
+    final currentLabels = detections.map((d) => d.label).toSet();
+    _trackInfos.removeWhere((label, _) => !currentLabels.contains(label));
 
     for (final detection in detections) {
-      final trackId = detection.label.hashCode;
-      final info = _trackInfos.putIfAbsent(trackId, _TrackInfo.new);
+      // FIX (Bug 7): key is the label string, not its hashCode.
+      final trackKey = detection.label;
+      final info = _trackInfos.putIfAbsent(trackKey, _TrackInfo.new);
 
       info.seenCount++;
 
-      // Wait for _kStabilityFrames before the first warning on each track.
+      // Wait for _kStabilityFrames before the first warning.
       if (info.seenCount < _kStabilityFrames) continue;
 
-      // Do not repeat the warning for the same stable track every frame.
+      // Safe objects warn once; dangerous objects re-warn on every frame.
       if (info.warned && !detection.isDangerous) continue;
-
-      info.warned = true;
-
       _onWarning(
         text: detection.voiceWarning,
         immediate: detection.isDangerous,

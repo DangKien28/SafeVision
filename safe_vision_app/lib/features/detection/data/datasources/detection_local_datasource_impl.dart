@@ -56,18 +56,13 @@ class _InferenceRequest {
   final int inputSize;
 }
 
-/// Sent from the isolate to the main isolate when a delegate fails.
 class _DelegateFailedSignal {
   const _DelegateFailedSignal(this.reason);
   final String reason;
 }
 
-// ── Isolate state (encapsulated — no top-level globals) ───────────────────────
+// ── Isolate state ─────────────────────────────────────────────────────────────
 
-/// All mutable state inside the worker isolate.
-///
-/// Stored as a local variable in [_inferenceEntryPoint], not as a global, so
-/// respawned isolates always start with a clean slate.
 class _IsolateState {
   Interpreter? interpreter;
   List<String> labels = [];
@@ -79,22 +74,9 @@ class _IsolateState {
 
 // ── Isolate entry point ───────────────────────────────────────────────────────
 
-/// All mutable state is local — zero globals.
-///
-/// Communication pattern:
-///   1. Main creates a [ReceivePort] and spawns this isolate with its
-///      [SendPort] as [mainSendPort].
-///   2. Isolate creates its own [ReceivePort], sends [SendPort] back
-///      to main (handshake).
-///   3. Both sides then use the exchanged ports for all future messages.
-///      Main → isolate: _LoadRequest / _InferenceRequest
-// FIX 12: angle brackets in doc comments must be wrapped in backticks to
-// prevent the Dart doc tooling from interpreting them as HTML tags.
-///      Isolate → main: `List<Map<String,dynamic>>` / _DelegateFailedSignal / bool
 void _inferenceEntryPoint(SendPort mainSendPort) {
   final state = _IsolateState();
 
-  // Step 2: send our command port back to main.
   final commandPort = ReceivePort();
   mainSendPort.send(commandPort.sendPort);
 
@@ -123,7 +105,7 @@ Future<void> _handleLoad(
         .toList();
     state.modelLoaded = true;
     state.consecutiveFailures = 0;
-    out.send(true); // load success
+    out.send(true);
   } catch (e) {
     debugPrint('[Isolate] load failed (delegate=${req.delegateMode}): $e');
     out.send(_DelegateFailedSignal(e.toString()));
@@ -161,12 +143,8 @@ InterpreterOptions _buildOptions(_DelegateMode mode, int numThreads) {
   switch (mode) {
     case _DelegateMode.accelerated:
       try {
-        // GpuDelegateV2 is constructed with default options to avoid
-        // dependency on GPU enum names that differ across tflite_flutter versions.
         opts.addDelegate(GpuDelegateV2());
-      } catch (_) {
-        // GPU unavailable on this device — XNNPack will be used instead.
-      }
+      } catch (_) {}
     case _DelegateMode.cpu:
       opts.addDelegate(XNNPackDelegate(
         options: XNNPackDelegateOptions(numThreads: numThreads),
@@ -301,10 +279,9 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
 
   @override
   Future<void> loadModel() async {
-    final data = await rootBundle.load(AppConstants.modelFileName);
-    _modelBytes = data.buffer.asUint8List();
-    _labelsRaw = await rootBundle.loadString(AppConstants.labelsFileName);
+    await _ensureModelAssets();
     await _spawnAndLoad();
+    _clearModelAssets();
   }
 
   @override
@@ -324,8 +301,6 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
     try {
       final completer = Completer<dynamic>();
 
-      // One-shot listener: resolves the completer on the very next message
-      // from the isolate, then cancels itself.
       late StreamSubscription<dynamic> sub;
       sub = _fromIsolate!.listen((msg) {
         if (!completer.isCompleted) {
@@ -361,7 +336,6 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
         return [];
       }
 
-      // Reset consecutive failure counters on success.
       if (_delegateMode == _DelegateMode.accelerated) {
         _consecutiveAcceleratedFailures = 0;
       } else {
@@ -373,7 +347,6 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
       debugPrint('[Datasource] runInference error: $e');
       return [];
     } finally {
-      // Unconditional — the camera stream must never permanently stall.
       _isolateBusy = false;
     }
   }
@@ -382,8 +355,7 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
   Future<void> closeModel() async {
     _isolateBusy = false;
     _killIsolate();
-    _modelBytes = null;
-    _labelsRaw = null;
+    _clearModelAssets();
     _delegateMode = _DelegateMode.accelerated;
     _consecutiveAcceleratedFailures = 0;
     _consecutiveCpuFailures = 0;
@@ -401,6 +373,7 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
         _consecutiveAcceleratedFailures = 0;
         _killIsolate();
         await _spawnAndLoad();
+        _clearModelAssets();
       }
     } else if (_delegateMode == _DelegateMode.cpu) {
       _consecutiveCpuFailures++;
@@ -408,8 +381,29 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
         debugPrint('[Datasource] CPU failed — disabling inference');
         _delegateMode = _DelegateMode.none;
         _killIsolate();
+        _clearModelAssets();
       }
     }
+  }
+
+  // ── Asset helpers ──────────────────────────────────────────────────────────
+
+  /// Loads model bytes and labels from disk if they are not already cached.
+  /// Called before every _spawnAndLoad() to support delegate respawns after
+  /// the heap copy was cleared by _clearModelAssets().
+  Future<void> _ensureModelAssets() async {
+    // prefer_conditional_assignment: use ??= so the async expression is only
+    // evaluated when the field is actually null.
+    _modelBytes ??= (await rootBundle.load(AppConstants.modelFileName))
+        .buffer
+        .asUint8List();
+    _labelsRaw ??= await rootBundle.loadString(AppConstants.labelsFileName);
+  }
+
+  /// Nulls both asset fields to release their memory from the Dart heap.
+  void _clearModelAssets() {
+    _modelBytes = null;
+    _labelsRaw = null;
   }
 
   // ── Isolate lifecycle ──────────────────────────────────────────────────────
@@ -417,23 +411,21 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
   Future<void> _spawnAndLoad() async {
     _killIsolate();
 
+    // Reload assets from disk if they were cleared after a previous load.
+    await _ensureModelAssets();
+
     _rawPort = ReceivePort();
-    // asBroadcastStream() lets multiple one-shot listeners attach over time
-    // without each one cancelling the others.
     _fromIsolate = _rawPort!.asBroadcastStream();
 
     _isolate = await Isolate.spawn(
       _inferenceEntryPoint,
-      _rawPort!.sendPort, // isolate sends everything here
+      _rawPort!.sendPort,
       debugName: 'SafeVision-Inference',
       errorsAreFatal: false,
     );
 
-    // Handshake: isolate sends its command SendPort as first message.
     _toIsolate = await _fromIsolate!.first as SendPort;
-    // Do NOT close _rawPort — it must stay open for inference replies.
 
-    // Load the model in the isolate and wait for the ack.
     final ack = await _sendLoad();
 
     if (ack is _DelegateFailedSignal) {
