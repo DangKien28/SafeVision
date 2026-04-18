@@ -143,6 +143,7 @@ abstract class AppTheme {
           fontSize: 16,
           fontWeight: FontWeight.bold,
         ),
+        // ignore: deprecated_member_use
         showValueIndicator: ShowValueIndicator.always,
       ),
 
