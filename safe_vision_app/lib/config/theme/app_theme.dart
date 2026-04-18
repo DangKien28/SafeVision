@@ -105,8 +105,6 @@ abstract class AppTheme {
       ),
 
       // ── Typography ─────────────────────────────────────────────────────────
-      // All text sizes are scaled up from Material defaults to ensure
-      // legibility for users with low vision.
       textTheme: base.textTheme
           .copyWith(
             displayLarge: _ts(57, FontWeight.bold),
@@ -121,7 +119,7 @@ abstract class AppTheme {
             bodyLarge: _ts(18, FontWeight.normal),
             bodyMedium: _ts(16, FontWeight.normal),
             bodySmall: _ts(14, FontWeight.normal),
-            labelLarge: _ts(24, FontWeight.bold), // button label
+            labelLarge: _ts(24, FontWeight.bold),
             labelMedium: _ts(18, FontWeight.w600),
             labelSmall: _ts(14, FontWeight.w500),
           )
@@ -133,10 +131,8 @@ abstract class AppTheme {
       // ── Slider (confidence threshold, speech rate) ─────────────────────────
       sliderTheme: SliderThemeData(
         activeTrackColor: _primary,
-        // FIX 4a: withOpacity → withValues(alpha:)
         inactiveTrackColor: _primary.withValues(alpha: 0.25),
         thumbColor: _primary,
-        // FIX 4b: withOpacity → withValues(alpha:)
         overlayColor: _primary.withValues(alpha: 0.20),
         trackHeight: 6,
         thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 14),
@@ -157,9 +153,7 @@ abstract class AppTheme {
         ),
         trackColor: WidgetStateProperty.resolveWith(
           (s) => s.contains(WidgetState.selected)
-              // FIX 4c: withOpacity → withValues(alpha:)
               ? _primary.withValues(alpha: 0.5)
-              // FIX 4d: withOpacity → withValues(alpha:)
               : Colors.grey.withValues(alpha: 0.3),
         ),
       ),
