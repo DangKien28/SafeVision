@@ -65,6 +65,7 @@ class _DetectionPageState extends State<DetectionPage>
   List<SmoothedBox> _boxes = [];
   bool _cameraReady = false;
   String? _errorMessage;
+  bool _isDisposed = false;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -108,7 +109,15 @@ class _DetectionPageState extends State<DetectionPage>
 
   @override
   void dispose() {
+    _isDisposed = true;
     WidgetsBinding.instance.removeObserver(this);
+
+    _detectionBloc.add(const DetectionStopped());
+    unawaited(
+      _camera.stopImageStream().catchError((Object e) {
+        debugPrint('[DetectionPage] stop stream error: $e');
+      }),
+    );
 
     _detectionBloc.close();
     _ttsBloc.close();
@@ -137,6 +146,11 @@ class _DetectionPageState extends State<DetectionPage>
   }
 
   void _onFrame(CameraFrame frame, VoidCallback onDone) {
+    if (_isDisposed || _detectionBloc.isClosed) {
+      onDone();
+      return;
+    }
+
     _detectionBloc.add(
       DetectionFrameReceived(frame, _sensorRotation, onDone),
     );
