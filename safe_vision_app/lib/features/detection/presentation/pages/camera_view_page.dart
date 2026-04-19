@@ -30,6 +30,8 @@ class CameraViewPage extends StatefulWidget {
 class _CameraViewPageState extends State<CameraViewPage>
     with WidgetsBindingObserver {
   final CameraService _cameraService = sl<CameraService>();
+  late final DetectionBloc _detectionBloc;
+  late final TtsBloc _ttsBloc;
 
   bool _cameraReady = false;
   int _cameraSession = 0;
@@ -48,7 +50,9 @@ class _CameraViewPageState extends State<CameraViewPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    context.read<DetectionBloc>().add(const DetectionStarted());
+    _detectionBloc = context.read<DetectionBloc>();
+    _ttsBloc = context.read<TtsBloc>();
+    _detectionBloc.add(const DetectionStarted());
     _startCamera();
   }
 
@@ -56,8 +60,8 @@ class _CameraViewPageState extends State<CameraViewPage>
   void dispose() {
     _phase = _LifecyclePhase.disposed;
     WidgetsBinding.instance.removeObserver(this);
-    context.read<DetectionBloc>().add(const DetectionStopped());
-    context.read<TtsBloc>().add(const TtsStop());
+    _detectionBloc.add(const DetectionStopped());
+    _ttsBloc.add(const TtsStop());
     _disposeBoxNotifier();
     _disposeDetectionsNotifier();
     unawaited(
