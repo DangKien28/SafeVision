@@ -90,7 +90,7 @@ class CameraService {
       orElse: () => cameras.first,
     );
 
-    await _controller?.dispose();
+    await dispose();
 
     _controller = CameraController(
       description,
