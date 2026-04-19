@@ -331,8 +331,8 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
 
       final result = await completer.future.timeout(
         const Duration(milliseconds: AppConstants.inferenceTimeoutMs),
-        onTimeout: () {
-          unawaited(cancelSub());
+        onTimeout: () async {
+          await cancelSub();
           return <Map<String, dynamic>>[];
         },
       );
@@ -470,7 +470,10 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
 
       return completer.future.timeout(
         const Duration(milliseconds: AppConstants.inferenceTimeoutMs),
-        onTimeout: () => _DelegateFailedSignal('load timeout'),
+        onTimeout: () {
+          unawaited(cancelSub());
+          return _DelegateFailedSignal('load timeout');
+        },
       );
     } finally {
       await cancelSub();
