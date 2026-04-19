@@ -33,6 +33,8 @@ class CameraService {
   CameraController? get controller => _controller;
 
   Future<void> initialize() async {
+    await disposeFuture;
+
     final cameras = await availableCameras();
     if (cameras.isEmpty) {
       throw app_exceptions.CameraException('No cameras available on device');
@@ -67,6 +69,8 @@ class CameraService {
   /// the controller.  The caller must stop the image stream before calling
   /// this and restart it afterwards.
   Future<void> switchCamera() async {
+    await disposeFuture;
+
     _isFrontCamera = !_isFrontCamera;
     _rotationDegrees = _isFrontCamera ? 270 : 90;
 
@@ -139,10 +143,27 @@ class CameraService {
     _isProcessingFrame = false;
   }
 
-  void dispose() {
+  Future<void> dispose() {
     _isProcessingFrame = false;
-    _disposeFuture = _controller?.dispose();
+
+    if (_disposeFuture != null) {
+      return _disposeFuture!;
+    }
+
+    final controller = _controller;
     _controller = null;
+
+    if (controller == null) {
+      return Future.value();
+    }
+
+    final future = controller.dispose();
+    _disposeFuture = future.whenComplete(() {
+      if (identical(_disposeFuture, future)) {
+        _disposeFuture = null;
+      }
+    });
+    return _disposeFuture!;
   }
 
   Future<void> get disposeFuture => _disposeFuture ?? Future.value();

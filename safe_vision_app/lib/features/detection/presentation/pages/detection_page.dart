@@ -35,9 +35,8 @@ import '../../../tts/presentation/bloc/tts_event.dart';
 /// 1. [initState] — create both BLoCs, dispatch [DetectionStarted].
 /// 2. [_onDetectionState] — when [DetectionModelReady], start camera.
 /// 3. [didChangeAppLifecycleState] — pause/resume on app background.
-/// 4. [dispose] — stop camera stream, close both BLoCs.
-///    [CameraService.dispose] releases hardware synchronously; async teardown
-///    is stored in [CameraService.disposeFuture].
+  /// 4. [dispose] — stop camera stream, close both BLoCs.
+  ///    [CameraService.dispose] returns a future; teardown starts immediately.
 class DetectionPage extends StatefulWidget {
   const DetectionPage({super.key});
 
@@ -112,10 +111,8 @@ class _DetectionPageState extends State<DetectionPage>
     _detectionBloc.close();
     _ttsBloc.close();
 
-    // CameraService.dispose() is synchronous (per the fix in camera_service.dart).
-    // The async hardware teardown is stored in CameraService.disposeFuture so
-    // the OS camera handle remains reachable until it ACKs the release.
-    _camera.dispose();
+    unawaited(_camera.dispose());
+    BoundingBoxPainter.clearCache();
     _tracker.clear();
 
     super.dispose();
