@@ -112,7 +112,6 @@ class _DetectionPageState extends State<DetectionPage>
     _isDisposed = true;
     WidgetsBinding.instance.removeObserver(this);
 
-    _detectionBloc.add(const DetectionStopped());
     unawaited(
       _camera.stopImageStream().catchError((Object e) {
         debugPrint('[DetectionPage] stop stream error: $e');
