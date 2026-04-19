@@ -81,7 +81,7 @@ class _CameraViewPageState extends State<CameraViewPage>
         if (_phase == _LifecyclePhase.paused) {
           _phase = _LifecyclePhase.active;
           if (_cameraService.isInitialized) {
-            _startStreaming();
+            unawaited(_startStreaming());
           } else {
             _startCamera();
           }
@@ -98,7 +98,8 @@ class _CameraViewPageState extends State<CameraViewPage>
       await _cameraService.initialize();
       if (!mounted || _phase == _LifecyclePhase.disposed) return;
       setState(() => _cameraReady = true);
-      _startStreaming();
+      // BUG A FIX: await so errors are caught by the outer try/catch.
+      await _startStreaming();
     } on PermissionException catch (e) {
       if (!mounted || _phase == _LifecyclePhase.disposed) return;
       _showPermissionDialog(e.message);
@@ -107,28 +108,36 @@ class _CameraViewPageState extends State<CameraViewPage>
     }
   }
 
-  void _startStreaming() {
+  Future<void> _startStreaming() async {
     if (_phase == _LifecyclePhase.disposed) return;
 
     final int session = _cameraSession;
-    // v4: callback receives CameraFrame (bytes already copied, buffer released).
-    _cameraService.startImageStream(
-      onFrame: (CameraFrame frame, void Function() onDone) {
-        if (session != _cameraSession ||
-            !mounted ||
-            _phase == _LifecyclePhase.disposed) {
-          onDone();
-          return;
-        }
-        context.read<DetectionBloc>().add(
-              DetectionFrameReceived(
-                frame,
-                _cameraService.rotationDegrees,
-                onDone,
-              ),
-            );
-      },
-    );
+    try {
+      await _cameraService.startImageStream(
+        onFrame: (CameraFrame frame, void Function() onDone) {
+          if (session != _cameraSession ||
+              !mounted ||
+              _phase == _LifecyclePhase.disposed) {
+            onDone();
+            return;
+          }
+          context.read<DetectionBloc>().add(
+                DetectionFrameReceived(
+                  frame,
+                  _cameraService.rotationDegrees,
+                  onDone,
+                ),
+              );
+        },
+      );
+    } catch (e) {
+      debugPrint('[Page] startImageStream error: $e');
+      if (mounted && _phase != _LifecyclePhase.disposed) {
+        setState(() => _cameraReady = false);
+        // Retry via full init path to re-initialise the controller.
+        await _startCamera();
+      }
+    }
   }
 
   Future<void> _switchCamera() async {
@@ -144,7 +153,8 @@ class _CameraViewPageState extends State<CameraViewPage>
       await _cameraService.switchCamera();
       if (!mounted || _phase == _LifecyclePhase.disposed) return;
       setState(() => _cameraReady = true);
-      _startStreaming();
+
+      await _startStreaming();
     } catch (e) {
       debugPrint('[Page] switchCamera error: $e');
       if (!mounted || _phase == _LifecyclePhase.disposed) return;

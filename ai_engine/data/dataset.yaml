@@ -1,7 +1,0 @@
-path: D:\DK_My_Code\Code_Mobile\Safe_Vision\ai_engine\data
-train: train/images
-val: validation/images
-test: test/images
-nc: 1
-names:
-  0: nguoi_di_bo

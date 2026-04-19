@@ -14,15 +14,11 @@ on:
         type: choice
         options: [staging, production]
 
-# Cancel in-progress runs on the same branch to save CI minutes
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  # Use channel: stable instead of pinning a specific version to avoid build
-  # failures when that version is unavailable on the runner. If pinning is
-  # required, check https://docs.flutter.dev/release/archive first.
   FLUTTER_CHANNEL: stable
   JAVA_VERSION: '17'
 
@@ -106,12 +102,6 @@ jobs:
         run: |
           sudo apt-get install -y lcov
 
-          # Remove platform-dependent files that require native plugins and
-          # cannot be meaningfully unit-tested (FlutterTts, SharedPreferences,
-          # Camera, TFLite).
-          # --ignore-errors unused: some files may not appear in coverage data
-          # at all (e.g. camera_service.dart is never imported by tests), so
-          # the exclude pattern would be "unused" and cause lcov to error out.
           lcov --remove coverage/lcov.info \
             --ignore-errors unused \
             '*/tts_service.dart' \
@@ -274,7 +264,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Fetch at least 2 commits so TruffleHog can diff on push events
           fetch-depth: 0
 
       - name: Setup Flutter
@@ -288,18 +277,10 @@ jobs:
 
       - name: Audit for known vulnerabilities
         run: |
-          # dart pub audit is not available in all SDK versions.
-          # Use flutter pub deps to verify resolved dependencies and
-          # dart pub outdated to flag packages with known advisories.
           flutter pub deps
-          dart pub outdated || true
+          dart pub audit
 
       - name: Check for hardcoded secrets
-        # TruffleHog requires distinct BASE and HEAD commits. On push events
-        # (especially force-pushes or initial pushes) BASE and HEAD can be
-        # identical, causing the action to exit with code 1. We guard this
-        # with continue-on-error and only run on pull_request events where
-        # a proper diff range is guaranteed.
         if: github.event_name == 'pull_request'
         uses: trufflesecurity/trufflehog@main
         continue-on-error: true
@@ -336,7 +317,10 @@ jobs:
       - name: Extract version from pubspec
         id: version
         run: |
-          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //')
+          # FIX (Bug 1): strip the +BUILD suffix before using the string as a
+          # git tag.  pubspec version is "1.0.0+1"; the '+' character is illegal
+          # in git tag names and causes `softprops/action-gh-release` to fail.
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | sed 's/+.*//')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=v$VERSION"    >> $GITHUB_OUTPUT
 
@@ -367,16 +351,15 @@ jobs:
   notify:
     name: Notify
     runs-on: ubuntu-latest
-    needs: [test, build-android, build-ios]
+    # FIX (Bug 11): added `security` so a failed security audit also triggers
+    # the Slack alert.  Previously the notify job only watched test and build
+    # jobs, meaning a failed security scan would pass silently.
+    needs: [test, build-android, build-ios, security]
     if: always()
     env:
-      # Evaluated once at job start; used by the step-level `if` guard below.
       HAS_SLACK_TOKEN: ${{ secrets.SLACK_BOT_TOKEN != '' }}
     steps:
       - name: Notify Slack on failure
-        # Only run when a job has failed AND the Slack token is configured.
-        # Without SLACK_BOT_TOKEN the action errors with:
-        #   "Need to provide at least one botToken or webhookUrl"
         if: contains(needs.*.result, 'failure') && env.HAS_SLACK_TOKEN == 'true'
         uses: slackapi/slack-github-action@v1
         with:

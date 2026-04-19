@@ -55,16 +55,11 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
   final DetectionObjectFromFrame _detectFromFrame;
   final DetectionWarningCallback _onWarning;
   Future<void> _lifecycleTail = Future<void>.value();
-  bool _acceptFrames = false;
   bool _modelReleased = true;
   int _frameEpoch = 0;
 
   final ObjectTracker _tracker = ObjectTracker();
 
-  // FIX (Bug 7): keyed by label STRING, not label.hashCode.
-  // Hashing can collide — e.g. "person".hashCode == "car".hashCode in theory —
-  // causing two distinct objects to share the same _TrackInfo entry, which
-  // would suppress warnings for one of them entirely.
   final Map<String, _TrackInfo> _trackInfos = {};
 
   bool get _stateAllowsFrames =>
@@ -96,7 +91,6 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
     Emitter<DetectionState> emit,
   ) async {
     await _serializeLifecycle(() async {
-      _acceptFrames = false;
       _frameEpoch++;
       emit(const DetectionLoading());
       _tracker.clear();
@@ -106,10 +100,8 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
         await _releaseModelIfNeeded();
         await _loadModel.call(const NoParams());
         _modelReleased = false;
-        _acceptFrames = true;
         emit(const DetectionModelReady());
       } catch (e, st) {
-        _acceptFrames = false;
         _modelReleased = true;
         debugPrint('[DetectionBloc] loadModel failed: $e\n$st');
         emit(DetectionFailure(e.toString()));
@@ -122,7 +114,6 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
     Emitter<DetectionState> emit,
   ) async {
     await _serializeLifecycle(() async {
-      _acceptFrames = false;
       _frameEpoch++;
       _tracker.clear();
       _trackInfos.clear();
@@ -135,8 +126,7 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
     DetectionFrameReceived event,
     Emitter<DetectionState> emit,
   ) async {
-    final canProcessFrame =
-        _acceptFrames || (_modelReleased && _stateAllowsFrames);
+    final canProcessFrame = _stateAllowsFrames;
     if (!canProcessFrame) {
       event.onDone();
       return;
@@ -150,8 +140,7 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
         rotationDegrees: event.rotationDegrees,
       );
 
-      final canEmitResult =
-          _acceptFrames || (_modelReleased && _stateAllowsFrames);
+      final canEmitResult = _stateAllowsFrames;
       if (!canEmitResult || frameEpoch != _frameEpoch) return;
 
       final tracked = _tracker.update(detections);
@@ -175,14 +164,10 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
   void _handleWarnings(List<DetectionObject> detections) {
     if (detections.isEmpty) return;
 
-    // FIX (Bug 7): use label string as key instead of label.hashCode.
-    // hashCode can collide across different label strings, merging track state
-    // for unrelated objects and silently suppressing warnings for one of them.
     final currentLabels = detections.map((d) => d.label).toSet();
     _trackInfos.removeWhere((label, _) => !currentLabels.contains(label));
 
     for (final detection in detections) {
-      // FIX (Bug 7): key is the label string, not its hashCode.
       final trackKey = detection.label;
       final info = _trackInfos.putIfAbsent(trackKey, _TrackInfo.new);
 
@@ -208,7 +193,6 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
 
   @override
   Future<void> close() async {
-    _acceptFrames = false;
     _frameEpoch++;
     await _releaseModelIfNeeded();
     return super.close();

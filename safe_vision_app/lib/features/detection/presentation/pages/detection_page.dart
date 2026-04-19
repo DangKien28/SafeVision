@@ -35,10 +35,9 @@ import '../../../tts/presentation/bloc/tts_event.dart';
 /// 1. [initState] — create both BLoCs, dispatch [DetectionStarted].
 /// 2. [_onDetectionState] — when [DetectionModelReady], start camera.
 /// 3. [didChangeAppLifecycleState] — pause/resume on app background.
-/// 4. [dispose] — stop camera stream, dispatch [DetectionStopped], dispose
-///    both BLoCs.  Camera hardware is released via
-///    [CameraService.dispose] (sync call; async cleanup stored in
-///    [CameraService.disposeFuture]).
+/// 4. [dispose] — stop camera stream, close both BLoCs.
+///    [CameraService.dispose] releases hardware synchronously; async teardown
+///    is stored in [CameraService.disposeFuture].
 class DetectionPage extends StatefulWidget {
   const DetectionPage({super.key});
 
@@ -73,15 +72,12 @@ class _DetectionPageState extends State<DetectionPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
-    // BUG FIX: create TtsBloc first so _onWarning can reference it immediately.
     _ttsBloc = sl<TtsBloc>();
 
     _detectionBloc = DetectionBloc(
       loadModel: sl(),
       closeModel: sl(),
       detectFromFrame: sl(),
-      // _onWarning is defined below with a direct reference to _ttsBloc.
-      // No stub, no late wiring.
       onWarning: _onWarning,
     );
 
@@ -97,7 +93,11 @@ class _DetectionPageState extends State<DetectionPage>
         _detectionBloc.add(const DetectionStopped());
       case AppLifecycleState.resumed:
         if (_cameraReady) {
-          _camera.startImageStream(onFrame: _onFrame);
+          unawaited(
+            _camera.startImageStream(onFrame: _onFrame).catchError((Object e) {
+              debugPrint('[DetectionPage] stream resume error: $e');
+            }),
+          );
         }
         _detectionBloc.add(const DetectionStarted());
       default:
@@ -109,8 +109,6 @@ class _DetectionPageState extends State<DetectionPage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
 
-    // Stop the pipeline before releasing hardware.
-    _detectionBloc.add(const DetectionStopped());
     _detectionBloc.close();
     _ttsBloc.close();
 
@@ -225,9 +223,6 @@ class _DetectionPageState extends State<DetectionPage>
       fit: StackFit.expand,
       children: [
         // ── Camera preview ──────────────────────────────────────────────────
-        // CameraController is exposed via a getter on CameraService in the
-        // real implementation.  Shown as a black placeholder here so the
-        // widget tree compiles without the camera plugin in test environments.
         const ColoredBox(color: Colors.black),
 
         // ── Bounding box overlay ────────────────────────────────────────────
