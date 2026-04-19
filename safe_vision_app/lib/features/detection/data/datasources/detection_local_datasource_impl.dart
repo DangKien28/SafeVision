@@ -305,6 +305,7 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
       sub = _fromIsolate!.listen((msg) {
         if (!completer.isCompleted) {
           completer.complete(msg);
+          unawaited(sub?.cancel());
         }
       });
 
@@ -442,6 +443,7 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
       sub = _fromIsolate!.listen((msg) {
         if (!completer.isCompleted) {
           completer.complete(msg);
+          unawaited(sub?.cancel());
         }
       });
 
