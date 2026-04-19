@@ -32,7 +32,13 @@ class CameraService {
   int get rotationDegrees => _rotationDegrees;
   CameraController? get controller => _controller;
 
+  /// Initializes the camera controller.
+  ///
+  /// If a previous [dispose] call is still in progress, this waits for that
+  /// teardown to complete before acquiring a new camera handle.
   Future<void> initialize() async {
+    await disposeFuture;
+
     final cameras = await availableCameras();
     if (cameras.isEmpty) {
       throw app_exceptions.CameraException('No cameras available on device');
@@ -66,7 +72,12 @@ class CameraService {
   /// Switches to the other lens direction (back ↔ front) and reinitialises
   /// the controller.  The caller must stop the image stream before calling
   /// this and restart it afterwards.
+  ///
+  /// If a previous [dispose] call is still in progress, this waits for that
+  /// teardown to complete before switching.
   Future<void> switchCamera() async {
+    await disposeFuture;
+
     _isFrontCamera = !_isFrontCamera;
     _rotationDegrees = _isFrontCamera ? 270 : 90;
 
@@ -139,10 +150,30 @@ class CameraService {
     _isProcessingFrame = false;
   }
 
-  void dispose() {
+  /// Disposes the active camera controller and returns a future that completes
+  /// when native camera teardown finishes.
+  ///
+  /// Safe to call multiple times; concurrent calls share the same in-flight
+  /// future until disposal completes.
+  Future<void> dispose() {
     _isProcessingFrame = false;
-    _disposeFuture = _controller?.dispose();
+
+    if (_disposeFuture != null) {
+      return _disposeFuture!;
+    }
+
+    final controller = _controller;
     _controller = null;
+
+    if (controller == null) {
+      return Future.value();
+    }
+
+    final cleanupFuture = controller.dispose().whenComplete(() {
+      _disposeFuture = null;
+    });
+    _disposeFuture = cleanupFuture;
+    return cleanupFuture;
   }
 
   Future<void> get disposeFuture => _disposeFuture ?? Future.value();
