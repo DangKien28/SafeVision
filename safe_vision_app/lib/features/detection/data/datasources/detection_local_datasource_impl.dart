@@ -331,8 +331,8 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
 
       final result = await completer.future.timeout(
         const Duration(milliseconds: AppConstants.inferenceTimeoutMs),
-        onTimeout: () async {
-          await cancelSub();
+        onTimeout: () {
+          unawaited(cancelSub());
           return <Map<String, dynamic>>[];
         },
       );
