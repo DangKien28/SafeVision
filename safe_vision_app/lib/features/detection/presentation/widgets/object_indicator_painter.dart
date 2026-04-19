@@ -241,25 +241,14 @@ class ObjectIndicatorPainter extends CustomPainter {
     if (boxes.isEmpty) return;
     if (size.width <= 0 || size.height <= 0) return;
 
-    if (mirrorHorizontal) {
-      canvas.save();
-      canvas.scale(-1, 1);
-      canvas.translate(-size.width, 0);
-    }
-
     final points = boxes
         .map((b) => _toRenderable(size, b))
         .whereType<_RenderablePoint>()
         .toList(growable: false);
-    if (points.isEmpty) {
-      if (mirrorHorizontal) canvas.restore();
-      return;
-    }
+    if (points.isEmpty) return;
 
     _paintEdgeIndicators(canvas, size, points);
     _paintCentroids(canvas, size, points);
-
-    if (mirrorHorizontal) canvas.restore();
   }
 
   _RenderablePoint? _toRenderable(Size size, SmoothedBox box) {
@@ -283,7 +272,8 @@ class ObjectIndicatorPainter extends CustomPainter {
     final centerX = (clampedLeft + clampedRight) / 2;
     final centerY = (clampedTop + clampedBottom) / 2;
 
-    final px = centerX * size.width;
+    final displayCenterX = mirrorHorizontal ? (1.0 - centerX) : centerX;
+    final px = displayCenterX * size.width;
     final py = centerY * size.height;
     final opacity = (1.0 - box.missedFrames * 0.3).clamp(0.2, 1.0);
     final isDangerous = area >= AppConstants.dangerousAreaThreshold;
@@ -333,10 +323,12 @@ class ObjectIndicatorPainter extends CustomPainter {
     final strokeWidth = math.max(8.0, size.shortestSide * 0.03);
 
     if (leftIntensity > 0) {
-      final color = _indicatorColor(leftDanger).withValues(alpha: leftIntensity);
+      final color =
+          _indicatorColor(leftDanger).withValues(alpha: leftIntensity);
       _paintArc(
         canvas: canvas,
-        rect: Rect.fromCircle(center: Offset(0, size.height / 2), radius: radius),
+        rect:
+            Rect.fromCircle(center: Offset(0, size.height / 2), radius: radius),
         startAngle: -math.pi / 2,
         sweepAngle: math.pi,
         color: color,
@@ -407,8 +399,8 @@ class ObjectIndicatorPainter extends CustomPainter {
         size.shortestSide * (0.01 + normalizedArea * 0.08),
       );
       final pulseExpansion = 1.0 + animationValue * 1.8;
-      final pulseOpacity = ((1.0 - animationValue) * point.opacity * 0.8)
-          .clamp(0.0, 1.0);
+      final pulseOpacity =
+          ((1.0 - animationValue) * point.opacity * 0.8).clamp(0.0, 1.0);
 
       canvas.drawCircle(
         point.center,
