@@ -298,14 +298,13 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
 
     _isolateBusy = true;
 
+    StreamSubscription<dynamic>? sub;
     try {
       final completer = Completer<dynamic>();
 
-      late StreamSubscription<dynamic> sub;
       sub = _fromIsolate!.listen((msg) {
         if (!completer.isCompleted) {
           completer.complete(msg);
-          sub.cancel();
         }
       });
 
@@ -347,6 +346,7 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
       debugPrint('[Datasource] runInference error: $e');
       return [];
     } finally {
+      await sub?.cancel();
       _isolateBusy = false;
     }
   }
@@ -437,28 +437,28 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
   Future<dynamic> _sendLoad() async {
     final completer = Completer<dynamic>();
 
-    late StreamSubscription<dynamic> sub;
-    sub = _fromIsolate!.listen((msg) {
-      if (!completer.isCompleted) {
-        completer.complete(msg);
-        sub.cancel();
-      }
-    });
+    StreamSubscription<dynamic>? sub;
+    try {
+      sub = _fromIsolate!.listen((msg) {
+        if (!completer.isCompleted) {
+          completer.complete(msg);
+        }
+      });
 
-    _toIsolate!.send(_LoadRequest(
-      modelBuffer: TransferableTypedData.fromList([_modelBytes!]),
-      labelsRaw: _labelsRaw!,
-      delegateMode: _delegateMode,
-      numThreads: AppConstants.inferenceThreads,
-    ));
+      _toIsolate!.send(_LoadRequest(
+        modelBuffer: TransferableTypedData.fromList([_modelBytes!]),
+        labelsRaw: _labelsRaw!,
+        delegateMode: _delegateMode,
+        numThreads: AppConstants.inferenceThreads,
+      ));
 
-    return completer.future.timeout(
-      const Duration(milliseconds: AppConstants.inferenceTimeoutMs),
-      onTimeout: () {
-        sub.cancel();
-        return _DelegateFailedSignal('load timeout');
-      },
-    );
+      return completer.future.timeout(
+        const Duration(milliseconds: AppConstants.inferenceTimeoutMs),
+        onTimeout: () => _DelegateFailedSignal('load timeout'),
+      );
+    } finally {
+      await sub?.cancel();
+    }
   }
 
   void _killIsolate() {

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/utils/permission_handler.dart';
-import '../../../../core/error/exceptions.dart';
+import '../../core/error/exceptions.dart';
+import '../../core/utils/permission_handler.dart';
 import '../detection/presentation/pages/detection_page.dart';
 
 /// Splash / permission-gate page.
