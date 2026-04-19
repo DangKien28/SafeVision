@@ -35,6 +35,10 @@ class _TtsPlaybackStarted extends TtsEvent {
   List<Object?> get props => [text];
 }
 
+class _TtsPlaybackStopped extends TtsEvent {
+  const _TtsPlaybackStopped();
+}
+
 // ── TtsBloc ───────────────────────────────────────────────────────────────────
 
 class TtsBloc extends Bloc<TtsEvent, TtsState> {
@@ -55,6 +59,7 @@ class TtsBloc extends Bloc<TtsEvent, TtsState> {
     on<_TtsErrorReceived>(_onErrorReceived);
     // FIX (Bug 9): register handler for the new playback-started internal event.
     on<_TtsPlaybackStarted>(_onPlaybackStarted);
+    on<_TtsPlaybackStopped>(_onPlaybackStopped);
 
     if (playbackUpdates != null) {
       _playbackSub = playbackUpdates.listen(_onPlaybackUpdate);
@@ -118,6 +123,10 @@ class TtsBloc extends Bloc<TtsEvent, TtsState> {
     emit(TtsSpeaking(event.text));
   }
 
+  void _onPlaybackStopped(_TtsPlaybackStopped event, Emitter<TtsState> emit) {
+    emit(const TtsStopped());
+  }
+
   // ── Playback stream ────────────────────────────────────────────────────────
 
   void _onPlaybackUpdate(TtsPlaybackUpdate update) {
@@ -128,7 +137,7 @@ class TtsBloc extends Bloc<TtsEvent, TtsState> {
         }
         break;
       case TtsPlaybackStatus.stopped:
-        if (!isClosed) add(const TtsStop());
+        if (!isClosed) add(const _TtsPlaybackStopped());
         break;
       case TtsPlaybackStatus.error:
         if (!isClosed) {

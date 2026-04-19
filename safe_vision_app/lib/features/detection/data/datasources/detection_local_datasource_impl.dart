@@ -298,14 +298,21 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
 
     _isolateBusy = true;
 
+    StreamSubscription<dynamic>? sub;
+    var subCancelled = false;
+    Future<void> cancelSub() async {
+      if (subCancelled) return;
+      subCancelled = true;
+      await sub?.cancel();
+    }
+
     try {
       final completer = Completer<dynamic>();
 
-      late StreamSubscription<dynamic> sub;
       sub = _fromIsolate!.listen((msg) {
         if (!completer.isCompleted) {
           completer.complete(msg);
-          sub.cancel();
+          unawaited(cancelSub());
         }
       });
 
@@ -325,7 +332,7 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
       final result = await completer.future.timeout(
         const Duration(milliseconds: AppConstants.inferenceTimeoutMs),
         onTimeout: () {
-          sub.cancel();
+          unawaited(cancelSub());
           return <Map<String, dynamic>>[];
         },
       );
@@ -347,6 +354,7 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
       debugPrint('[Datasource] runInference error: $e');
       return [];
     } finally {
+      await cancelSub();
       _isolateBusy = false;
     }
   }
@@ -437,28 +445,39 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
   Future<dynamic> _sendLoad() async {
     final completer = Completer<dynamic>();
 
-    late StreamSubscription<dynamic> sub;
-    sub = _fromIsolate!.listen((msg) {
-      if (!completer.isCompleted) {
-        completer.complete(msg);
-        sub.cancel();
-      }
-    });
+    StreamSubscription<dynamic>? sub;
+    var subCancelled = false;
+    Future<void> cancelSub() async {
+      if (subCancelled) return;
+      subCancelled = true;
+      await sub?.cancel();
+    }
 
-    _toIsolate!.send(_LoadRequest(
-      modelBuffer: TransferableTypedData.fromList([_modelBytes!]),
-      labelsRaw: _labelsRaw!,
-      delegateMode: _delegateMode,
-      numThreads: AppConstants.inferenceThreads,
-    ));
+    try {
+      sub = _fromIsolate!.listen((msg) {
+        if (!completer.isCompleted) {
+          completer.complete(msg);
+          unawaited(cancelSub());
+        }
+      });
 
-    return completer.future.timeout(
-      const Duration(milliseconds: AppConstants.inferenceTimeoutMs),
-      onTimeout: () {
-        sub.cancel();
-        return _DelegateFailedSignal('load timeout');
-      },
-    );
+      _toIsolate!.send(_LoadRequest(
+        modelBuffer: TransferableTypedData.fromList([_modelBytes!]),
+        labelsRaw: _labelsRaw!,
+        delegateMode: _delegateMode,
+        numThreads: AppConstants.inferenceThreads,
+      ));
+
+      return completer.future.timeout(
+        const Duration(milliseconds: AppConstants.inferenceTimeoutMs),
+        onTimeout: () {
+          unawaited(cancelSub());
+          return _DelegateFailedSignal('load timeout');
+        },
+      );
+    } finally {
+      await cancelSub();
+    }
   }
 
   void _killIsolate() {

@@ -5,7 +5,7 @@ import 'package:bloc_concurrency/bloc_concurrency.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../../core/usecases/usecase.dart';
-import '../../domain/entities/detection_object.dart';
+import '../../domain/entities/tracked_detection.dart';
 import '../../domain/services/object_tracker.dart';
 import '../../domain/usecases/close_model_usecase.dart';
 import '../../domain/usecases/detection_object_from_frame.dart';
@@ -60,7 +60,7 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
 
   final ObjectTracker _tracker = ObjectTracker();
 
-  final Map<String, _TrackInfo> _trackInfos = {};
+  final Map<int, _TrackInfo> _trackInfos = {};
 
   bool get _stateAllowsFrames =>
       state is DetectionModelReady || state is DetectionSuccess;
@@ -151,7 +151,7 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
         timestamp: DateTime.now().millisecondsSinceEpoch,
       ));
 
-      _handleWarnings(detections);
+      _handleWarnings(tracked);
     } catch (e) {
       debugPrint('[DetectionBloc] inference error (frame skipped): $e');
     } finally {
@@ -161,15 +161,17 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
 
   // ── Warning throttle ────────────────────────────────────────────────────────
 
-  void _handleWarnings(List<DetectionObject> detections) {
-    if (detections.isEmpty) return;
+  void _handleWarnings(List<TrackedDetection> trackedDetections) {
+    final visibleTracks =
+        trackedDetections.where((track) => track.isVisible).toList();
+    if (visibleTracks.isEmpty) return;
 
-    final currentLabels = detections.map((d) => d.label).toSet();
-    _trackInfos.removeWhere((label, _) => !currentLabels.contains(label));
+    final currentTrackIds = visibleTracks.map((track) => track.trackId).toSet();
+    _trackInfos.removeWhere((trackId, _) => !currentTrackIds.contains(trackId));
 
-    for (final detection in detections) {
-      final trackKey = detection.label;
-      final info = _trackInfos.putIfAbsent(trackKey, _TrackInfo.new);
+    for (final tracked in visibleTracks) {
+      final detection = tracked.detection;
+      final info = _trackInfos.putIfAbsent(tracked.trackId, _TrackInfo.new);
 
       info.seenCount++;
 

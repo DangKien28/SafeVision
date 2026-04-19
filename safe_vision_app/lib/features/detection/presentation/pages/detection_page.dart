@@ -61,8 +61,8 @@ class _DetectionPageState extends State<DetectionPage>
 
   // ── Rendering state ───────────────────────────────────────────────────────
 
-  final BoxTracker _tracker = BoxTracker();
   List<SmoothedBox> _boxes = [];
+  int _boxVersion = 0;
   bool _cameraReady = false;
   String? _errorMessage;
   bool _isDisposed = false;
@@ -127,7 +127,6 @@ class _DetectionPageState extends State<DetectionPage>
       }),
     );
     BoundingBoxPainter.clearCache();
-    _tracker.clear();
 
     super.dispose();
   }
@@ -190,8 +189,15 @@ class _DetectionPageState extends State<DetectionPage>
     }
 
     if (state is DetectionSuccess) {
-      final boxes = _tracker.update(state.detections);
-      if (mounted) setState(() => _boxes = boxes);
+      final boxes = state.trackedDetections
+          .map(SmoothedBox.fromTrackedDetection)
+          .toList(growable: false);
+      if (mounted) {
+        setState(() {
+          _boxes = boxes;
+          _boxVersion++;
+        });
+      }
     }
 
     if (state is DetectionFailure) {
@@ -245,7 +251,7 @@ class _DetectionPageState extends State<DetectionPage>
         CustomPaint(
           painter: BoundingBoxPainter(
             boxes: _boxes,
-            version: _tracker.version,
+            version: _boxVersion,
           ),
         ),
 
