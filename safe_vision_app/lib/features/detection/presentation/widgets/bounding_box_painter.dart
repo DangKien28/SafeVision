@@ -233,8 +233,10 @@ class BoundingBoxPainter extends CustomPainter {
     }
   }
 
-  /// Clears the entire static cache.  Call in `tearDown` inside unit/widget
-  /// tests to avoid state leakage between test groups.
+  /// Clears the entire static cache.
+  ///
+  /// Call this during page/widget teardown to proactively release cached
+  /// [TextPainter] instances between sessions.
   static void clearCache() => _textCache.clear();
 
   /// Test-only alias for compatibility with existing tests.

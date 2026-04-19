@@ -143,6 +143,11 @@ class CameraService {
     _isProcessingFrame = false;
   }
 
+  /// Disposes the active camera controller and returns a future that completes
+  /// when native camera teardown finishes.
+  ///
+  /// Safe to call multiple times; concurrent calls share the same in-flight
+  /// future until disposal completes.
   Future<void> dispose() {
     _isProcessingFrame = false;
 
@@ -157,13 +162,11 @@ class CameraService {
       return Future.value();
     }
 
-    final future = controller.dispose();
-    _disposeFuture = future.whenComplete(() {
-      if (identical(_disposeFuture, future)) {
-        _disposeFuture = null;
-      }
+    final cleanupFuture = controller.dispose().whenComplete(() {
+      _disposeFuture = null;
     });
-    return _disposeFuture!;
+    _disposeFuture = cleanupFuture;
+    return cleanupFuture;
   }
 
   Future<void> get disposeFuture => _disposeFuture ?? Future.value();
