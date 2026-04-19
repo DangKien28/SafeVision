@@ -62,7 +62,7 @@ class _CameraViewPageState extends State<CameraViewPage>
     _disposeDetectionsNotifier();
     unawaited(
       _cameraService.dispose().catchError((Object e) {
-        debugPrint('[Page] camera dispose error: $e');
+        debugPrint('[CameraViewPage] camera dispose error: $e');
       }),
     );
     BoundingBoxPainter.clearCache();

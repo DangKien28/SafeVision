@@ -37,7 +37,8 @@ import '../../../tts/presentation/bloc/tts_event.dart';
 /// 3. [didChangeAppLifecycleState] — pause/resume on app background.
   /// 4. [dispose] — stop camera stream, close both BLoCs.
   ///    [CameraService.dispose] returns a future; teardown starts immediately
-  ///    and continues asynchronously (invoked via `unawaited` in dispose).
+  ///    and continues asynchronously (invoked via `unawaited` in this page's
+  ///    dispose override).
 class DetectionPage extends StatefulWidget {
   const DetectionPage({super.key});
 
