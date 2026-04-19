@@ -4,6 +4,12 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:safe_vision_app/core/config/detection_config.dart';
 import 'package:safe_vision_app/core/constants/app_constants.dart';
+import 'package:safe_vision_app/features/settings/domain/usecases/load_settings_usecase.dart';
+import 'package:safe_vision_app/features/settings/domain/usecases/set_confidence_panel_usecase.dart';
+import 'package:safe_vision_app/features/settings/domain/usecases/set_confidence_threshold_usecase.dart';
+import 'package:safe_vision_app/features/settings/domain/usecases/set_speech_rate_usecase.dart';
+import 'package:safe_vision_app/features/settings/domain/usecases/set_tts_language_usecase.dart';
+import 'package:safe_vision_app/features/settings/domain/usecases/set_voice_enabled_usecase.dart';
 import 'package:safe_vision_app/features/settings/domain/repositories/settings_repository.dart';
 import 'package:safe_vision_app/features/settings/presentation/bloc/settings_bloc.dart';
 import 'package:safe_vision_app/features/settings/presentation/bloc/settings_event.dart';
@@ -64,7 +70,17 @@ void main() {
   });
 
   SettingsBloc buildBloc() =>
-      SettingsBloc(mockRepo, configureTts, stopSpeaking, detectionConfig);
+      SettingsBloc(
+        LoadSettingsUsecase(mockRepo),
+        SetSpeechRateUsecase(mockRepo),
+        SetConfidenceThresholdUsecase(mockRepo),
+        SetVoiceEnabledUsecase(mockRepo),
+        SetConfidencePanelUsecase(mockRepo),
+        SetTtsLanguageUsecase(mockRepo),
+        configureTts,
+        stopSpeaking,
+        detectionConfig,
+      );
 
   // Invariant: language updates preserve the current speechRate.
 
@@ -109,8 +125,6 @@ void main() {
         isA<SettingsState>().having((s) => s.isLoading, 'isLoading', isTrue),
         isA<SettingsState>()
             .having((s) => s.isLoading, 'isLoading', isFalse)
-            .having((s) => s.speechRate, 'speechRate', closeTo(0.6, 0.001)),
-        isA<SettingsState>()
             .having((s) => s.ttsLanguage, 'ttsLanguage', 'vi-VN')
             .having((s) => s.speechRate, 'speechRate', closeTo(0.6, 0.001)),
       ],
