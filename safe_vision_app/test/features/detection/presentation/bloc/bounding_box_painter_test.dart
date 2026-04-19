@@ -396,5 +396,57 @@ void main() {
       expect(leftAlpha, greaterThan(0));
       expect(leftAlpha, greaterThan(rightAlpha));
     });
+
+    test('left-zone mirror mode still activates edge indicator', () async {
+      const size = Size(300, 300);
+      const sample = Offset(66, 150);
+
+      final mirroredLeftZonePainter = ObjectIndicatorPainter(
+        boxes: const [
+          SmoothedBox(
+            left: 0.05,
+            top: 0.20,
+            width: 0.20,
+            height: 0.20,
+            label: 'xe',
+            trackId: 1,
+            missedFrames: 0,
+          ),
+        ],
+        mirrorHorizontal: true,
+        animationValue: 0.3,
+        version: 1,
+      );
+      final mirroredRightZonePainter = ObjectIndicatorPainter(
+        boxes: const [
+          SmoothedBox(
+            left: 0.75,
+            top: 0.20,
+            width: 0.20,
+            height: 0.20,
+            label: 'xe',
+            trackId: 2,
+            missedFrames: 0,
+          ),
+        ],
+        mirrorHorizontal: true,
+        animationValue: 0.3,
+        version: 1,
+      );
+
+      final leftAlpha = await alphaAt(
+        painter: mirroredLeftZonePainter,
+        size: size,
+        sample: sample,
+      );
+      final rightAlpha = await alphaAt(
+        painter: mirroredRightZonePainter,
+        size: size,
+        sample: sample,
+      );
+
+      expect(leftAlpha, greaterThan(0));
+      expect(leftAlpha, greaterThan(rightAlpha));
+    });
   });
 }

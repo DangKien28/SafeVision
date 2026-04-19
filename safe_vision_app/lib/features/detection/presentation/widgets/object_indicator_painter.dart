@@ -193,15 +193,15 @@ class ObjectIndicatorPainter extends CustomPainter {
   final int version;
   final double animationValue;
 
-  static final Map<String, Object?> _cache = {};
+  static final Map<String, Object?> _textCache = {};
   final Set<String> _instanceCachedKeys = <String>{};
 
-  static void clearCache() => _cache.clear();
+  static void clearCache() => _textCache.clear();
   static void clearCacheForTesting() => clearCache();
 
   void dispose() {
     for (final key in _instanceCachedKeys) {
-      _cache.remove(key);
+      _textCache.remove(key);
     }
     _instanceCachedKeys.clear();
   }
