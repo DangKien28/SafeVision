@@ -32,6 +32,10 @@ class CameraService {
   int get rotationDegrees => _rotationDegrees;
   CameraController? get controller => _controller;
 
+  /// Initializes the camera controller.
+  ///
+  /// If a previous [dispose] call is still in progress, this waits for that
+  /// teardown to complete before acquiring a new camera handle.
   Future<void> initialize() async {
     await disposeFuture;
 
@@ -68,6 +72,9 @@ class CameraService {
   /// Switches to the other lens direction (back ↔ front) and reinitialises
   /// the controller.  The caller must stop the image stream before calling
   /// this and restart it afterwards.
+  ///
+  /// If a previous [dispose] call is still in progress, this waits for that
+  /// teardown to complete before switching.
   Future<void> switchCamera() async {
     await disposeFuture;
 

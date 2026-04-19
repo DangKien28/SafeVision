@@ -112,7 +112,11 @@ class _DetectionPageState extends State<DetectionPage>
     _detectionBloc.close();
     _ttsBloc.close();
 
-    unawaited(_camera.dispose());
+    unawaited(
+      _camera.dispose().catchError((Object e) {
+        debugPrint('[DetectionPage] camera dispose error: $e');
+      }),
+    );
     BoundingBoxPainter.clearCache();
     _tracker.clear();
 

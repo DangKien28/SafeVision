@@ -60,7 +60,11 @@ class _CameraViewPageState extends State<CameraViewPage>
     context.read<TtsBloc>().add(const TtsStop());
     _disposeBoxNotifier();
     _disposeDetectionsNotifier();
-    unawaited(_cameraService.dispose());
+    unawaited(
+      _cameraService.dispose().catchError((Object e) {
+        debugPrint('[Page] camera dispose error: $e');
+      }),
+    );
     BoundingBoxPainter.clearCache();
     super.dispose();
   }
