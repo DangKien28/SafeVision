@@ -200,10 +200,8 @@ class _Track {
 /// cache could grow without bound over a long session.  Two mechanisms guard
 /// against this:
 ///   1. [_maxCacheEntries] cap — cache is cleared when it exceeds this limit.
-///   2. [dispose()] / [clearCacheForTesting()] — explicit eviction helpers.
-///      [dispose()] removes only the labels owned by this painter instance and
-///      should be called from [State.dispose] when a wrapping StatefulWidget
-///      is used (see camera_view_page.dart).
+///   2. [clearCache()] / [clearCacheForTesting()] — explicit eviction helpers
+///      called during page/widget teardown.
 class BoundingBoxPainter extends CustomPainter {
   BoundingBoxPainter({
     required this.boxes,
@@ -224,14 +222,6 @@ class BoundingBoxPainter extends CustomPainter {
   /// The YOLOv8 model used by SafeVision has 13 labels, so 64 entries is a
   /// generous upper bound that still prevents runaway accumulation.
   static const int _maxCacheEntries = 64;
-
-  /// Removes cache entries for all labels owned by this painter instance.
-  /// Wire this into [State.dispose] when the painter is held by a StatefulWidget.
-  void dispose() {
-    for (final box in boxes) {
-      _textCache.remove(box.label);
-    }
-  }
 
   /// Clears the entire static cache.
   ///
