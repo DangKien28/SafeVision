@@ -11,7 +11,7 @@ import '../../domain/entities/detection_object.dart';
 import '../bloc/detection_bloc.dart';
 import '../bloc/detection_event.dart';
 import '../bloc/detection_state.dart';
-import '../widgets/bounding_box_painter.dart';
+import '../widgets/object_indicator_painter.dart';
 import '../widgets/confidence_score_display.dart';
 import '../../../tts/presentation/bloc/tts_bloc.dart';
 import '../../../tts/presentation/bloc/tts_event.dart';
@@ -49,7 +49,7 @@ class DetectionPage extends StatefulWidget {
 }
 
 class _DetectionPageState extends State<DetectionPage>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   // ── Services ──────────────────────────────────────────────────────────────
 
   final CameraService _camera = sl<CameraService>();
@@ -58,6 +58,7 @@ class _DetectionPageState extends State<DetectionPage>
 
   late final TtsBloc _ttsBloc;
   late final DetectionBloc _detectionBloc;
+  late final AnimationController _pulseController;
 
   // ── Rendering state ───────────────────────────────────────────────────────
 
@@ -75,6 +76,10 @@ class _DetectionPageState extends State<DetectionPage>
     WidgetsBinding.instance.addObserver(this);
 
     _ttsBloc = sl<TtsBloc>();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat();
 
     _detectionBloc = DetectionBloc(
       loadModel: sl(),
@@ -126,7 +131,8 @@ class _DetectionPageState extends State<DetectionPage>
         debugPrint('[DetectionPage] camera dispose error: $e');
       }),
     );
-    BoundingBoxPainter.clearCache();
+    _pulseController.dispose();
+    ObjectIndicatorPainter.clearCache();
 
     super.dispose();
   }
@@ -248,10 +254,14 @@ class _DetectionPageState extends State<DetectionPage>
         const ColoredBox(color: Colors.black),
 
         // ── Bounding box overlay ────────────────────────────────────────────
-        CustomPaint(
-          painter: BoundingBoxPainter(
-            boxes: _boxes,
-            version: _boxVersion,
+        AnimatedBuilder(
+          animation: _pulseController,
+          builder: (_, __) => CustomPaint(
+            painter: ObjectIndicatorPainter(
+              boxes: _boxes,
+              version: _boxVersion,
+              animationValue: _pulseController.value,
+            ),
           ),
         ),
 

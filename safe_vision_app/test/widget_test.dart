@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:safe_vision_app/features/detection/domain/entities/detection_object.dart';
 import 'package:safe_vision_app/features/detection/presentation/widgets/confidence_score_display.dart';
-import 'package:safe_vision_app/features/detection/presentation/widgets/bounding_box_painter.dart';
+import 'package:safe_vision_app/features/detection/presentation/widgets/object_indicator_painter.dart';
 
 void main() {
   // ConfidenceScoreDisplay
@@ -107,16 +107,16 @@ void main() {
     });
   });
 
-  // BoundingBoxPainter
+  // ObjectIndicatorPainter
 
-  group('BoundingBoxPainter', () {
+  group('ObjectIndicatorPainter', () {
     testWidgets('paints without error when box list is empty', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
             body: SizedBox.expand(
               child: CustomPaint(
-                painter: BoundingBoxPainter(
+                painter: ObjectIndicatorPainter(
                   boxes: [],
                   mirrorHorizontal: false,
                 ),
@@ -147,7 +147,7 @@ void main() {
           home: Scaffold(
             body: SizedBox.expand(
               child: CustomPaint(
-                painter: BoundingBoxPainter(
+                painter: ObjectIndicatorPainter(
                   boxes: smoothed,
                   mirrorHorizontal: false,
                 ),
@@ -178,7 +178,7 @@ void main() {
           home: Scaffold(
             body: SizedBox.expand(
               child: CustomPaint(
-                painter: BoundingBoxPainter(
+                painter: ObjectIndicatorPainter(
                   boxes: smoothed,
                   mirrorHorizontal: true,
                 ),
@@ -192,7 +192,7 @@ void main() {
     });
 
     test('shouldRepaint returns true when box lists differ', () {
-      final a = BoundingBoxPainter(boxes: [
+      final a = ObjectIndicatorPainter(boxes: [
         const SmoothedBox(
           left: 0.1,
           top: 0.1,
@@ -203,7 +203,7 @@ void main() {
           missedFrames: 0,
         ),
       ]);
-      final b = BoundingBoxPainter(boxes: [
+      final b = ObjectIndicatorPainter(boxes: [
         const SmoothedBox(
           left: 0.5,
           top: 0.5,
@@ -219,8 +219,8 @@ void main() {
     });
 
     test('shouldRepaint returns false when box lists are identical', () {
-      final painter = BoundingBoxPainter(boxes: []);
-      expect(painter.shouldRepaint(BoundingBoxPainter(boxes: [])), isFalse);
+      final painter = ObjectIndicatorPainter(boxes: []);
+      expect(painter.shouldRepaint(ObjectIndicatorPainter(boxes: [])), isFalse);
     });
   });
 
