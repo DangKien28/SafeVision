@@ -216,6 +216,7 @@ class BoundingBoxPainter extends CustomPainter {
   // ── Static TextPainter cache ─────────────────────────────────────────────
 
   static final Map<String, TextPainter> _textCache = {};
+  final Set<String> _instanceCachedLabels = <String>{};
 
   /// Maximum number of distinct label entries kept in the static cache.
   /// When this limit is reached the cache is cleared before adding new entries.
@@ -231,6 +232,18 @@ class BoundingBoxPainter extends CustomPainter {
 
   /// Test-only alias for compatibility with existing tests.
   static void clearCacheForTesting() => clearCache();
+
+  /// Releases labels cached by this painter instance from the static cache.
+  ///
+  /// `CustomPainter` has no framework lifecycle callback for disposal, so this
+  /// method is called explicitly by owners/tests when the painter is no longer
+  /// needed.
+  void dispose() {
+    for (final label in _instanceCachedLabels) {
+      _textCache.remove(label);
+    }
+    _instanceCachedLabels.clear();
+  }
 
   // ── CustomPainter ─────────────────────────────────────────────────────────
 
@@ -354,6 +367,7 @@ class BoundingBoxPainter extends CustomPainter {
       final tp = TextPainter(textDirection: TextDirection.ltr);
       _textCache[label] = tp;
     }
+    _instanceCachedLabels.add(label);
 
     final tp = _textCache[label]!;
     tp.text = TextSpan(
