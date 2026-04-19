@@ -299,13 +299,20 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
     _isolateBusy = true;
 
     StreamSubscription<dynamic>? sub;
+    var subCancelled = false;
+    Future<void> cancelSub() async {
+      if (subCancelled) return;
+      subCancelled = true;
+      await sub?.cancel();
+    }
+
     try {
       final completer = Completer<dynamic>();
 
       sub = _fromIsolate!.listen((msg) {
         if (!completer.isCompleted) {
           completer.complete(msg);
-          unawaited(sub?.cancel());
+          unawaited(cancelSub());
         }
       });
 
@@ -325,7 +332,7 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
       final result = await completer.future.timeout(
         const Duration(milliseconds: AppConstants.inferenceTimeoutMs),
         onTimeout: () {
-          sub.cancel();
+          unawaited(cancelSub());
           return <Map<String, dynamic>>[];
         },
       );
@@ -347,7 +354,7 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
       debugPrint('[Datasource] runInference error: $e');
       return [];
     } finally {
-      await sub?.cancel();
+      await cancelSub();
       _isolateBusy = false;
     }
   }
@@ -439,11 +446,18 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
     final completer = Completer<dynamic>();
 
     StreamSubscription<dynamic>? sub;
+    var subCancelled = false;
+    Future<void> cancelSub() async {
+      if (subCancelled) return;
+      subCancelled = true;
+      await sub?.cancel();
+    }
+
     try {
       sub = _fromIsolate!.listen((msg) {
         if (!completer.isCompleted) {
           completer.complete(msg);
-          unawaited(sub?.cancel());
+          unawaited(cancelSub());
         }
       });
 
@@ -459,7 +473,7 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
         onTimeout: () => _DelegateFailedSignal('load timeout'),
       );
     } finally {
-      await sub?.cancel();
+      await cancelSub();
     }
   }
 
