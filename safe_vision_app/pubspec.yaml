@@ -69,3 +69,8 @@ flutter:
     # UI assets
     - assets/icons/sv_icon.png
     - assets/images/sv_logo.png
+
+  fonts:
+    - family: Roboto
+      fonts:
+        - asset: assets/fonts/Roboto-Regular.ttf

@@ -15,6 +15,7 @@ import '../widgets/object_indicator_painter.dart';
 import '../widgets/confidence_score_display.dart';
 import '../../../tts/presentation/bloc/tts_bloc.dart';
 import '../../../tts/presentation/bloc/tts_event.dart';
+import '../../../tts/presentation/widgets/voice_feedback_indicator.dart';
 import '../../../settings/domain/repositories/settings_repository.dart';
 
 /// Root page for the object-detection camera feed.
@@ -221,6 +222,23 @@ class _DetectionPageState extends State<DetectionPage>
     }
   }
 
+  Future<void> _switchCamera() async {
+    if (!_cameraReady) return;
+    try {
+      await _camera.stopImageStream();
+      await _camera.switchCamera();
+      await _camera.startImageStream(onFrame: _onFrame);
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('[DetectionPage] switch camera error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không thể chuyển camera. Vui lòng thử lại.')),
+        );
+      }
+    }
+  }
+
   // ── Warning callback ──────────────────────────────────────────────────────
 
   void _onWarning({
@@ -313,8 +331,19 @@ class _DetectionPageState extends State<DetectionPage>
           builder: (_, __) => CustomPaint(
             painter: ObjectIndicatorPainter(
               boxes: _boxes,
+              mirrorHorizontal: _camera.isFrontCamera,
               version: _boxVersion,
               animationValue: _pulseController.value,
+            ),
+          ),
+        ),
+
+        const Align(
+          alignment: Alignment.topCenter,
+          child: SafeArea(
+            child: Padding(
+              padding: EdgeInsets.only(top: 12),
+              child: VoiceFeedbackIndicator(),
             ),
           ),
         ),
@@ -344,6 +373,7 @@ class _DetectionPageState extends State<DetectionPage>
               Navigator.of(context).pop();
             },
             onSettings: () => unawaited(_openSettings()),
+            onSwitchCamera: () => unawaited(_switchCamera()),
           ),
         ),
       ],
@@ -439,10 +469,12 @@ class _ControlBar extends StatelessWidget {
   const _ControlBar({
     required this.onStop,
     required this.onSettings,
+    required this.onSwitchCamera,
   });
 
   final VoidCallback onStop;
   final VoidCallback onSettings;
+  final VoidCallback onSwitchCamera;
 
   @override
   Widget build(BuildContext context) {
@@ -458,6 +490,12 @@ class _ControlBar extends StatelessWidget {
               tooltip: 'Cài đặt',
               icon: const Icon(Icons.settings, size: 32, color: Colors.white),
               onPressed: onSettings,
+            ),
+            IconButton(
+              tooltip: 'Đổi camera',
+              icon:
+                  const Icon(Icons.cameraswitch_outlined, size: 32, color: Colors.white),
+              onPressed: onSwitchCamera,
             ),
             SizedBox(
               height: 80,
