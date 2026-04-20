@@ -101,9 +101,9 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
         await _loadModel.call(const NoParams());
         _modelReleased = false;
         emit(const DetectionModelReady());
-      } catch (e, st) {
+      } catch (e) {
         _modelReleased = true;
-        debugPrint('[DetectionBloc] loadModel failed: $e\n$st');
+        debugPrint('[DetectionBloc] loadModel failed: $e');
         emit(DetectionFailure(e.toString()));
       }
     });
