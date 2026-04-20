@@ -192,8 +192,12 @@ class _DetectionPageState extends State<DetectionPage>
   }
 
   Future<void> _openSettings() async {
-    await Navigator.of(context).pushNamed('/settings');
-    await _loadShowConfidencePanelSetting();
+    try {
+      await Navigator.of(context).pushNamed('/settings');
+      await _loadShowConfidencePanelSetting();
+    } catch (e) {
+      debugPrint('[DetectionPage] open settings error: $e');
+    }
   }
 
   // ── Warning callback ──────────────────────────────────────────────────────
@@ -318,7 +322,7 @@ class _DetectionPageState extends State<DetectionPage>
               _detectionBloc.add(const DetectionStopped());
               Navigator.of(context).pop();
             },
-            onSettings: () => unawaited(_openSettings()),
+            onSettings: _openSettings,
           ),
         ),
       ],
@@ -417,7 +421,7 @@ class _ControlBar extends StatelessWidget {
   });
 
   final VoidCallback onStop;
-  final VoidCallback onSettings;
+  final Future<void> Function() onSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -432,7 +436,9 @@ class _ControlBar extends StatelessWidget {
             IconButton(
               tooltip: 'Cài đặt',
               icon: const Icon(Icons.settings, size: 32, color: Colors.white),
-              onPressed: onSettings,
+              onPressed: () async {
+                await onSettings();
+              },
             ),
             SizedBox(
               height: 80,
