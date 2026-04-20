@@ -11,6 +11,7 @@ class LocalStorageService {
   static const _keyConfidence = 'confidenceThreshold';
   static const _keyVoiceEnabled = 'voiceEnabled';
   static const _keyShowConfidence = 'showConfidencePanel';
+  static const _keyBasicDisplayMode = 'basicDisplayModeEnabled';
   static const _keyTtsLanguage = 'ttsLanguage';
 
   Future<SharedPreferences> get _prefs => SharedPreferences.getInstance();
@@ -35,6 +36,12 @@ class LocalStorageService {
       (await _prefs).getBool(_keyShowConfidence) ?? true;
   Future<void> setShowConfidencePanel(bool v) async =>
       (await _prefs).setBool(_keyShowConfidence, v);
+
+  Future<bool> getBasicDisplayModeEnabled() async =>
+      (await _prefs).getBool(_keyBasicDisplayMode) ??
+      AppConstants.basicModeDefaultEnabled;
+  Future<void> setBasicDisplayModeEnabled(bool v) async =>
+      (await _prefs).setBool(_keyBasicDisplayMode, v);
 
   Future<String> getTtsLanguage() async =>
       (await _prefs).getString(_keyTtsLanguage) ?? AppConstants.ttsLanguage;

@@ -99,4 +99,23 @@ void main() {
       verify(() => mockStorage.setTtsLanguage('vi-VN')).called(1);
     });
   });
+
+  group('getBasicDisplayModeEnabled', () {
+    test('delegates to storage', () async {
+      when(() => mockStorage.getBasicDisplayModeEnabled())
+          .thenAnswer((_) async => true);
+      final result = await repository.getBasicDisplayModeEnabled();
+      expect(result, isTrue);
+      verify(() => mockStorage.getBasicDisplayModeEnabled()).called(1);
+    });
+  });
+
+  group('setBasicDisplayModeEnabled', () {
+    test('delegates to storage', () async {
+      when(() => mockStorage.setBasicDisplayModeEnabled(false))
+          .thenAnswer((_) async {});
+      await repository.setBasicDisplayModeEnabled(false);
+      verify(() => mockStorage.setBasicDisplayModeEnabled(false)).called(1);
+    });
+  });
 }

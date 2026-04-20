@@ -6,7 +6,7 @@ abstract class AppConstants {
   static const String labelsFileName = 'assets/models/labels.txt';
 
   // ── Detection ───────────────────────────────────────────────────────────────
-  static const double confidenceThreshold = 0.30;
+  static const double confidenceThreshold = 0.45;
   static const double iouThreshold = 0.45;
   static const int maxDetections = 10;
   static const int maxClassesPerBox = 2;
@@ -31,6 +31,10 @@ abstract class AppConstants {
   static const double minRenderableBoxArea = 0.0001;
   static const double maxRenderableAspectRatio = 10.0;
   static const int latestFrameMaxAgeMs = 1200;
+  static const int basicModeMaxIndicators = 4;
+  static const double basicModeMinRenderableBoxArea = 0.003;
+  static const int basicModeMinConsecutiveFrames = 2;
+  static const bool basicModeDefaultEnabled = true;
 
   // ── TTS ──────────────────────────────────────────────────────────────────────
   static const int ttsCooldownMs = 3000;
