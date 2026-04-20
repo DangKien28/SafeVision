@@ -38,6 +38,13 @@ class SettingsConfidencePanelToggled extends SettingsEvent {
   List<Object?> get props => [show];
 }
 
+class SettingsBasicDisplayModeToggled extends SettingsEvent {
+  const SettingsBasicDisplayModeToggled(this.enabled);
+  final bool enabled;
+  @override
+  List<Object?> get props => [enabled];
+}
+
 /// Fired when the user requests a TTS language cycle.  SafeVision always
 /// stays on Vietnamese (`vi-VN`); the event simply re-applies the current
 /// state's speechRate so the engine doesn't revert to its default.

@@ -58,6 +58,8 @@ class _SettingsView extends StatelessWidget {
               _ConfidenceSlider(threshold: state.confidenceThreshold),
               const Divider(),
               _SectionHeader('Hiển thị'),
+              _BasicModeToggle(enabled: state.basicDisplayModeEnabled),
+              const SizedBox(height: 12),
               _PanelToggle(show: state.showConfidencePanel),
             ],
           );
@@ -239,6 +241,39 @@ class _PanelToggle extends StatelessWidget {
                 onChanged: (v) => context
                     .read<SettingsBloc>()
                     .add(SettingsConfidencePanelToggled(v)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BasicModeToggle extends StatelessWidget {
+  const _BasicModeToggle({required this.enabled});
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 80,
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              const Icon(Icons.auto_awesome, size: 28),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text('Chế độ cơ bản (ít chỉ báo)',
+                    style: TextStyle(fontSize: 18)),
+              ),
+              Switch(
+                value: enabled,
+                onChanged: (v) => context
+                    .read<SettingsBloc>()
+                    .add(SettingsBasicDisplayModeToggled(v)),
               ),
             ],
           ),

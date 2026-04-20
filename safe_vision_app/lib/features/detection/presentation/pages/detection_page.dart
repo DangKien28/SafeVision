@@ -4,10 +4,12 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/constants/app_constants.dart';
 import '../../../../core/services/camera_service.dart';
 import '../../../../core/utils/voice_helper.dart';
 import '../../../../injection_container.dart';
 import '../../domain/entities/detection_object.dart';
+import '../../domain/entities/tracked_detection.dart';
 import '../bloc/detection_bloc.dart';
 import '../bloc/detection_event.dart';
 import '../bloc/detection_state.dart';
@@ -82,6 +84,7 @@ class _DetectionPageState extends State<DetectionPage>
   String? _errorMessage;
   bool _isDisposed = false;
   bool _showConfidencePanel = true;
+  bool _basicDisplayModeEnabled = AppConstants.basicModeDefaultEnabled;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -191,7 +194,7 @@ class _DetectionPageState extends State<DetectionPage>
 
   Future<void> _bootstrapDetection() async {
     try {
-      await _loadShowConfidencePanelSetting();
+      await _loadDisplaySettings();
       if (_isDisposed || _detectionBloc.isClosed) return;
       _detectionBloc.add(const DetectionStarted());
     } catch (e) {
@@ -204,13 +207,17 @@ class _DetectionPageState extends State<DetectionPage>
     }
   }
 
-  Future<void> _loadShowConfidencePanelSetting() async {
+  Future<void> _loadDisplaySettings() async {
     try {
       final show = await _settingsRepository.getShowConfidencePanel();
+      final basicMode = await _settingsRepository.getBasicDisplayModeEnabled();
       if (!mounted) return;
-      setState(() => _showConfidencePanel = show);
+      setState(() {
+        _showConfidencePanel = show;
+        _basicDisplayModeEnabled = basicMode;
+      });
     } catch (e) {
-      debugPrint('[DetectionPage] load showConfidencePanel error: $e');
+      debugPrint('[DetectionPage] load display settings error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -224,7 +231,7 @@ class _DetectionPageState extends State<DetectionPage>
   Future<void> _openSettings() async {
     try {
       await Navigator.of(context).pushNamed('/settings');
-      await _loadShowConfidencePanelSetting();
+      await _loadDisplaySettings();
     } catch (e) {
       debugPrint('[DetectionPage] open settings error: $e');
       if (mounted) {
@@ -278,7 +285,8 @@ class _DetectionPageState extends State<DetectionPage>
     }
 
     if (state is DetectionSuccess) {
-      final boxes = state.trackedDetections
+      final displayTracks = _filterDisplayTracks(state.trackedDetections);
+      final boxes = displayTracks
           .map(SmoothedBox.fromTrackedDetection)
           .toList(growable: false);
       if (mounted) {
@@ -293,6 +301,46 @@ class _DetectionPageState extends State<DetectionPage>
       if (mounted) setState(() => _errorMessage = state.message);
       _ttsBloc.add(TtsSpeak(VoiceHelper.systemError(), immediate: true));
     }
+  }
+
+  /// Filters/sorts tracked detections for on-screen indicators in Basic mode.
+  ///
+  /// Basic mode keeps only visible detections and removes noisy points by
+  /// requiring either: (1) dangerous area, or (2) minimum consecutive stable
+  /// frames and minimum area. Remaining tracks are prioritized by danger,
+  /// confidence, then area, and capped to a small beginner-friendly count.
+  List<TrackedDetection> _filterDisplayTracks(List<TrackedDetection> tracks) {
+    if (!_basicDisplayModeEnabled) return tracks;
+
+    final filtered = tracks
+        .where((track) => track.isVisible)
+        .where(_shouldDisplayTrackInBasicMode)
+        .toList(growable: false)
+      ..sort((a, b) {
+        final dangerOrder = (b.detection.isDangerous ? 1 : 0) -
+            (a.detection.isDangerous ? 1 : 0);
+        if (dangerOrder != 0) return dangerOrder;
+        final confidenceOrder =
+            b.detection.confidence.compareTo(a.detection.confidence);
+        if (confidenceOrder != 0) return confidenceOrder;
+        return b.detection.boundingBox.area
+            .compareTo(a.detection.boundingBox.area);
+      });
+
+    if (filtered.length <= AppConstants.basicModeMaxIndicators) {
+      return filtered;
+    }
+    return filtered.take(AppConstants.basicModeMaxIndicators).toList();
+  }
+
+  bool _shouldDisplayTrackInBasicMode(TrackedDetection track) {
+    final area = track.detection.boundingBox.area;
+    if (area >= AppConstants.dangerousAreaThreshold) return true;
+    if (track.consecutiveVisibleFrames <
+        AppConstants.basicModeMinConsecutiveFrames) {
+      return false;
+    }
+    return area >= AppConstants.basicModeMinRenderableBoxArea;
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -411,7 +459,7 @@ class _DetectionPageState extends State<DetectionPage>
 
     return Positioned.fill(
       child: FittedBox(
-        fit: BoxFit.cover,
+        fit: BoxFit.contain,
         child: SizedBox(
           width: previewWidth,
           height: previewHeight,

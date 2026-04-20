@@ -20,6 +20,7 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     on<SettingsConfidenceChanged>(_onConfidenceChanged);
     on<SettingsVoiceToggled>(_onVoiceToggled);
     on<SettingsConfidencePanelToggled>(_onConfidencePanelToggled);
+    on<SettingsBasicDisplayModeToggled>(_onBasicDisplayModeToggled);
     on<SettingsTtsLanguageChanged>(_onTtsLanguageChanged);
   }
 
@@ -43,6 +44,8 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
       final confidenceThreshold = await _repository.getConfidenceThreshold();
       final voiceEnabled = await _repository.getVoiceEnabled();
       final showConfidencePanel = await _repository.getShowConfidencePanel();
+      final basicDisplayModeEnabled =
+          await _repository.getBasicDisplayModeEnabled();
       final ttsLanguage = await _repository.getTtsLanguage();
 
       _detectionConfig.setConfidenceThreshold(confidenceThreshold);
@@ -60,6 +63,7 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
         confidenceThreshold: confidenceThreshold,
         voiceEnabled: voiceEnabled,
         showConfidencePanel: showConfidencePanel,
+        basicDisplayModeEnabled: basicDisplayModeEnabled,
         ttsLanguage: ttsLanguage.isNotEmpty ? ttsLanguage : _forcedLanguage,
         isLoading: false,
       ));
@@ -111,6 +115,14 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
   ) async {
     await _repository.setShowConfidencePanel(event.show);
     emit(state.copyWith(showConfidencePanel: event.show));
+  }
+
+  Future<void> _onBasicDisplayModeToggled(
+    SettingsBasicDisplayModeToggled event,
+    Emitter<SettingsState> emit,
+  ) async {
+    await _repository.setBasicDisplayModeEnabled(event.enabled);
+    emit(state.copyWith(basicDisplayModeEnabled: event.enabled));
   }
 
   /// BUG FIX (SV-006): language change MUST forward the current speechRate.

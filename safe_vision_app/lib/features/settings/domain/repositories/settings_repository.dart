@@ -7,6 +7,8 @@ abstract class SettingsRepository {
   Future<void> setVoiceEnabled(bool enabled);
   Future<bool> getShowConfidencePanel();
   Future<void> setShowConfidencePanel(bool show);
+  Future<bool> getBasicDisplayModeEnabled();
+  Future<void> setBasicDisplayModeEnabled(bool enabled);
   Future<String> getTtsLanguage();
   Future<void> setTtsLanguage(String language);
 }

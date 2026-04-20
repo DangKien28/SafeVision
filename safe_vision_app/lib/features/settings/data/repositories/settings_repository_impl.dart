@@ -24,6 +24,12 @@ class SettingsRepositoryImpl implements SettingsRepository {
   Future<void> setShowConfidencePanel(bool v) =>
       _storage.setShowConfidencePanel(v);
   @override
+  Future<bool> getBasicDisplayModeEnabled() =>
+      _storage.getBasicDisplayModeEnabled();
+  @override
+  Future<void> setBasicDisplayModeEnabled(bool v) =>
+      _storage.setBasicDisplayModeEnabled(v);
+  @override
   Future<String> getTtsLanguage() => _storage.getTtsLanguage();
   @override
   Future<void> setTtsLanguage(String v) => _storage.setTtsLanguage(v);

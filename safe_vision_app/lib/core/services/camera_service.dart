@@ -50,12 +50,14 @@ class CameraService {
     );
 
     _isFrontCamera = description.lensDirection == CameraLensDirection.front;
-    _rotationDegrees = _isFrontCamera ? 270 : 90;
+    _rotationDegrees = description.sensorOrientation;
 
-    // BUG FIX 1: was ResolutionPreset.low (240 × 320). Medium gives ≈ 480p.
+    // Use high preset for a clearer preview; inference remains throttled by FPS
+    // and frame-locking. If low-end devices regress, this should be made a
+    // runtime setting in app configuration.
     _controller = CameraController(
       description,
-      ResolutionPreset.medium,
+      ResolutionPreset.high,
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.yuv420,
     );
@@ -79,7 +81,6 @@ class CameraService {
     await disposeFuture;
 
     _isFrontCamera = !_isFrontCamera;
-    _rotationDegrees = _isFrontCamera ? 270 : 90;
 
     final cameras = await availableCameras();
     final targetDirection =
@@ -89,12 +90,14 @@ class CameraService {
       (c) => c.lensDirection == targetDirection,
       orElse: () => cameras.first,
     );
+    _rotationDegrees = description.sensorOrientation;
 
     await dispose();
 
+    // Keep the same quality choice after lens switching for consistent UX.
     _controller = CameraController(
       description,
-      ResolutionPreset.medium,
+      ResolutionPreset.high,
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.yuv420,
     );

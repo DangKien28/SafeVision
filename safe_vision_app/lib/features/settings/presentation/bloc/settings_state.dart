@@ -8,6 +8,7 @@ class SettingsState extends Equatable {
     this.confidenceThreshold = AppConstants.confidenceThreshold,
     this.voiceEnabled = true,
     this.showConfidencePanel = true,
+    this.basicDisplayModeEnabled = AppConstants.basicModeDefaultEnabled,
     this.ttsLanguage = '',
     this.isLoading = false,
   });
@@ -16,6 +17,7 @@ class SettingsState extends Equatable {
   final double confidenceThreshold;
   final bool voiceEnabled;
   final bool showConfidencePanel;
+  final bool basicDisplayModeEnabled;
   final String ttsLanguage;
   final bool isLoading;
 
@@ -24,6 +26,7 @@ class SettingsState extends Equatable {
     double? confidenceThreshold,
     bool? voiceEnabled,
     bool? showConfidencePanel,
+    bool? basicDisplayModeEnabled,
     String? ttsLanguage,
     bool? isLoading,
   }) =>
@@ -32,6 +35,8 @@ class SettingsState extends Equatable {
         confidenceThreshold: confidenceThreshold ?? this.confidenceThreshold,
         voiceEnabled: voiceEnabled ?? this.voiceEnabled,
         showConfidencePanel: showConfidencePanel ?? this.showConfidencePanel,
+        basicDisplayModeEnabled:
+            basicDisplayModeEnabled ?? this.basicDisplayModeEnabled,
         ttsLanguage: ttsLanguage ?? this.ttsLanguage,
         isLoading: isLoading ?? this.isLoading,
       );
@@ -42,6 +47,7 @@ class SettingsState extends Equatable {
         confidenceThreshold,
         voiceEnabled,
         showConfidencePanel,
+        basicDisplayModeEnabled,
         ttsLanguage,
         isLoading,
       ];
