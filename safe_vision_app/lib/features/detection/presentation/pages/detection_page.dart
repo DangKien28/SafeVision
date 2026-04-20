@@ -451,13 +451,17 @@ class _LoadingOverlay extends StatelessWidget {
             children: [
               Image.asset(
                 'assets/images/sv_logo.png',
+                semanticLabel: 'SafeVision Logo',
                 height: 64,
                 width: 64,
                 fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => Icon(
-                  Icons.visibility,
-                  size: 56,
-                  color: theme.colorScheme.primary,
+                errorBuilder: (_, __, ___) => Semantics(
+                  label: 'SafeVision Icon',
+                  child: Icon(
+                    Icons.visibility,
+                    size: 56,
+                    color: theme.colorScheme.primary,
+                  ),
                 ),
               ),
               const SizedBox(height: 18),

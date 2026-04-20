@@ -66,8 +66,12 @@ class DetectionControlBar extends StatelessWidget {
                       ),
                       textStyle: WidgetStatePropertyAll(
                         theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                              fontWeight: FontWeight.bold,
+                            ) ??
+                            const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
                       ),
                     ),
                     icon: const Icon(Icons.stop_circle_outlined, size: 24),
