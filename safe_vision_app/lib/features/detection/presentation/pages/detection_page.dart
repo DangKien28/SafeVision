@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:vibration/vibration.dart';
 
 import '../../../../core/services/camera_service.dart';
 import '../../../../core/utils/voice_helper.dart';
@@ -37,10 +36,10 @@ import '../../../settings/domain/repositories/settings_repository.dart';
 /// 1. [initState] — create both BLoCs, dispatch [DetectionStarted].
 /// 2. [_onDetectionState] — when [DetectionModelReady], start camera.
 /// 3. [didChangeAppLifecycleState] — pause/resume on app background.
-  /// 4. [dispose] — stop camera stream, close both BLoCs.
-  ///    [CameraService.dispose] returns a future; teardown starts immediately
-  ///    and continues asynchronously (invoked via `unawaited` in this page's
-  ///    dispose override).
+/// 4. [dispose] — stop camera stream, close both BLoCs.
+///    [CameraService.dispose] returns a future; teardown starts immediately
+///    and continues asynchronously (invoked via `unawaited` in this page's
+///    dispose override).
 class DetectionPage extends StatefulWidget {
   const DetectionPage({
     super.key,
@@ -105,8 +104,13 @@ class _DetectionPageState extends State<DetectionPage>
     switch (state) {
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:
-        _camera.stopImageStream();
+        unawaited(
+          _camera.stopImageStream().catchError((Object e) {
+            debugPrint('[DetectionPage] stop stream on lifecycle error: $e');
+          }),
+        );
         _detectionBloc.add(const DetectionStopped());
+        break;
       case AppLifecycleState.resumed:
         if (_cameraReady) {
           unawaited(
@@ -116,6 +120,7 @@ class _DetectionPageState extends State<DetectionPage>
           );
         }
         _detectionBloc.add(const DetectionStarted());
+        break;
       default:
         break;
     }
@@ -174,7 +179,7 @@ class _DetectionPageState extends State<DetectionPage>
   /// In production this should read from the [CameraController.description]
   /// sensor orientation.  The conventional default for rear-facing portrait is
   /// 90°.
-  int get _sensorRotation => 90;
+  int get _sensorRotation => _camera.rotationDegrees;
 
   Future<void> _bootstrapDetection() async {
     try {
@@ -216,7 +221,8 @@ class _DetectionPageState extends State<DetectionPage>
       debugPrint('[DetectionPage] open settings error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Không thể mở cài đặt. Vui lòng thử lại.')),
+          const SnackBar(
+              content: Text('Không thể mở cài đặt. Vui lòng thử lại.')),
         );
       }
     }
@@ -233,7 +239,8 @@ class _DetectionPageState extends State<DetectionPage>
       debugPrint('[DetectionPage] switch camera error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Không thể chuyển camera. Vui lòng thử lại.')),
+          const SnackBar(
+              content: Text('Không thể chuyển camera. Vui lòng thử lại.')),
         );
       }
     }
@@ -246,17 +253,13 @@ class _DetectionPageState extends State<DetectionPage>
     required bool immediate,
     required bool withVibration,
   }) {
-    _ttsBloc.add(TtsSpeak(text, immediate: immediate));
-    if (withVibration) _triggerVibration();
-  }
-
-  Future<void> _triggerVibration() async {
-    try {
-      // `hasVibrator()` resolves to a non-null bool in the current plugin.
-      if (await Vibration.hasVibrator()) {
-        Vibration.vibrate(duration: 200);
-      }
-    } catch (_) {}
+    _ttsBloc.add(
+      TtsSpeak(
+        text,
+        immediate: immediate,
+        withVibration: withVibration,
+      ),
+    );
   }
 
   // ── BLoC state handler ────────────────────────────────────────────────────
@@ -493,8 +496,8 @@ class _ControlBar extends StatelessWidget {
             ),
             IconButton(
               tooltip: 'Đổi camera',
-              icon:
-                  const Icon(Icons.cameraswitch_outlined, size: 32, color: Colors.white),
+              icon: const Icon(Icons.cameraswitch_outlined,
+                  size: 32, color: Colors.white),
               onPressed: onSwitchCamera,
             ),
             SizedBox(

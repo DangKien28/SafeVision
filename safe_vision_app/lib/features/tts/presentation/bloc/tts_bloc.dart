@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:vibration/vibration.dart';
 
 import '../../../../features/settings/domain/repositories/settings_repository.dart';
 import '../../../../features/tts/domain/entities/tts_playback_update.dart';
@@ -42,6 +43,8 @@ class _TtsPlaybackStopped extends TtsEvent {
 // ── TtsBloc ───────────────────────────────────────────────────────────────────
 
 class TtsBloc extends Bloc<TtsEvent, TtsState> {
+  static const int _kWarningVibrationDurationMs = 200;
+
   TtsBloc({
     required SpeakWarningUsecase speakWarning,
     required StopSpeakingUsecase stopSpeaking,
@@ -85,15 +88,34 @@ class TtsBloc extends Bloc<TtsEvent, TtsState> {
     }
 
     try {
-      if (event.immediate) {
-        await _speakWarning.immediate(event.text);
-      } else {
-        await _speakWarning(event.text);
+      final accepted = event.immediate
+          ? await _speakWarning.immediate(event.text)
+          : await _speakWarning(event.text);
+
+      if (!accepted) {
+        debugPrint('[TtsBloc] speak rejected by engine');
+        if (state is! TtsStopped) emit(const TtsStopped());
+        return;
       }
+
+      if (event.withVibration) {
+        await _triggerVibration();
+      }
+
       emit(TtsSpeaking(event.text));
     } catch (e) {
       debugPrint('[TtsBloc] speak error: $e');
       emit(TtsError(e.toString()));
+    }
+  }
+
+  Future<void> _triggerVibration() async {
+    try {
+      if (await Vibration.hasVibrator()) {
+        await Vibration.vibrate(duration: _kWarningVibrationDurationMs);
+      }
+    } catch (e) {
+      debugPrint('[TtsBloc] vibration error (ignored): $e');
     }
   }
 
