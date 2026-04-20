@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'config/theme/app_theme.dart';
+import 'injection_container.dart';
 import 'features/detection/presentation/pages/detection_page.dart';
 import 'features/settings/presentation/pages/settings_page.dart';
 import 'features/splash/splash_page.dart';
@@ -24,7 +25,9 @@ class SafeVisionApp extends StatelessWidget {
       initialRoute: SplashPage.routeName,
       routes: {
         SplashPage.routeName: (_) => const SplashPage(),
-        DetectionPage.routeName: (_) => const DetectionPage(),
+        DetectionPage.routeName: (_) => DetectionPage(
+              settingsRepository: sl(),
+            ),
         SettingsPage.routeName: (_) => const SettingsPage(),
       },
     );
