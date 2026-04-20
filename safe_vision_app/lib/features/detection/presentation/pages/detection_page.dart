@@ -176,9 +176,13 @@ class _DetectionPageState extends State<DetectionPage>
   int get _sensorRotation => 90;
 
   Future<void> _bootstrapDetection() async {
-    await _loadShowConfidencePanelSetting();
-    if (_isDisposed || _detectionBloc.isClosed) return;
-    _detectionBloc.add(const DetectionStarted());
+    try {
+      await _loadShowConfidencePanelSetting();
+      if (_isDisposed || _detectionBloc.isClosed) return;
+      _detectionBloc.add(const DetectionStarted());
+    } catch (e) {
+      debugPrint('[DetectionPage] bootstrap error: $e');
+    }
   }
 
   Future<void> _loadShowConfidencePanelSetting() async {
@@ -436,9 +440,7 @@ class _ControlBar extends StatelessWidget {
             IconButton(
               tooltip: 'Cài đặt',
               icon: const Icon(Icons.settings, size: 32, color: Colors.white),
-              onPressed: () async {
-                await onSettings();
-              },
+              onPressed: onSettings,
             ),
             SizedBox(
               height: 80,
