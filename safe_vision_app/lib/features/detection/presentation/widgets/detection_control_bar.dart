@@ -16,6 +16,8 @@ class DetectionControlBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final stopButtonBaseStyle =
+        theme.elevatedButtonTheme.style ?? ElevatedButton.styleFrom();
 
     return SafeArea(
       child: Padding(
@@ -53,25 +55,21 @@ class DetectionControlBar extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(minHeight: 56),
-                    child: ElevatedButton.icon(
-                      style: theme.elevatedButtonTheme.style?.copyWith(
-                        minimumSize:
-                            const WidgetStatePropertyAll(Size(56, 56)),
-                        padding: const WidgetStatePropertyAll(
-                          EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                        ),
-                        textStyle: WidgetStatePropertyAll(
-                          theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                  child: ElevatedButton.icon(
+                    style: stopButtonBaseStyle.copyWith(
+                      minimumSize: const WidgetStatePropertyAll(Size(56, 56)),
+                      padding: const WidgetStatePropertyAll(
+                        EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                      ),
+                      textStyle: WidgetStatePropertyAll(
+                        theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
-                      icon: const Icon(Icons.stop_circle_outlined, size: 24),
-                      label: const Text('Dừng', maxLines: 1),
-                      onPressed: onStop,
                     ),
+                    icon: const Icon(Icons.stop_circle_outlined, size: 24),
+                    label: const Text('Dừng', maxLines: 1),
+                    onPressed: onStop,
                   ),
                 ),
               ],

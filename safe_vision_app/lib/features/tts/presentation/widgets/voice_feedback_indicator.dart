@@ -49,7 +49,6 @@ class VoiceFeedbackIndicator extends StatelessWidget {
                           height: 1.25,
                         ),
                         maxLines: 2,
-                        softWrap: true,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
