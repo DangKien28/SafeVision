@@ -471,7 +471,7 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
         numThreads: AppConstants.inferenceThreads,
       ));
 
-      return completer.future.timeout(
+      return await completer.future.timeout(
         const Duration(milliseconds: AppConstants.inferenceTimeoutMs),
         onTimeout: () {
           unawaited(cancelSub());
