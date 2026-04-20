@@ -15,6 +15,7 @@ import '../widgets/object_indicator_painter.dart';
 import '../widgets/confidence_score_display.dart';
 import '../../../tts/presentation/bloc/tts_bloc.dart';
 import '../../../tts/presentation/bloc/tts_event.dart';
+import '../../../settings/domain/repositories/settings_repository.dart';
 
 /// Root page for the object-detection camera feed.
 ///
@@ -67,6 +68,7 @@ class _DetectionPageState extends State<DetectionPage>
   bool _cameraReady = false;
   String? _errorMessage;
   bool _isDisposed = false;
+  bool _showConfidencePanel = true;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -88,6 +90,7 @@ class _DetectionPageState extends State<DetectionPage>
       onWarning: _onWarning,
     );
 
+    unawaited(_loadShowConfidencePanelSetting());
     _detectionBloc.add(const DetectionStarted());
   }
 
@@ -166,6 +169,19 @@ class _DetectionPageState extends State<DetectionPage>
   /// sensor orientation.  The conventional default for rear-facing portrait is
   /// 90°.
   int get _sensorRotation => 90;
+
+  Future<void> _loadShowConfidencePanelSetting() async {
+    try {
+      final show = await sl<SettingsRepository>().getShowConfidencePanel();
+      if (!mounted) return;
+      setState(() => _showConfidencePanel = show);
+    } catch (_) {}
+  }
+
+  Future<void> _openSettings() async {
+    await Navigator.of(context).pushNamed('/settings');
+    await _loadShowConfidencePanelSetting();
+  }
 
   // ── Warning callback ──────────────────────────────────────────────────────
 
@@ -266,19 +282,20 @@ class _DetectionPageState extends State<DetectionPage>
         ),
 
         // ── Confidence score panel ──────────────────────────────────────────
-        Align(
-          alignment: Alignment.topRight,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(0, 48, 12, 0),
-            child: BlocBuilder<DetectionBloc, DetectionState>(
-              builder: (_, state) => ConfidenceScoreDisplay(
-                detections: state is DetectionSuccess
-                    ? state.detections
-                    : <DetectionObject>[],
+        if (_showConfidencePanel)
+          Align(
+            alignment: Alignment.topRight,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(0, 48, 12, 0),
+              child: BlocBuilder<DetectionBloc, DetectionState>(
+                builder: (_, state) => ConfidenceScoreDisplay(
+                  detections: state is DetectionSuccess
+                      ? state.detections
+                      : <DetectionObject>[],
+                ),
               ),
             ),
           ),
-        ),
 
         // ── Bottom control bar ──────────────────────────────────────────────
         Align(
@@ -288,7 +305,7 @@ class _DetectionPageState extends State<DetectionPage>
               _detectionBloc.add(const DetectionStopped());
               Navigator.of(context).pop();
             },
-            onSettings: () => Navigator.of(context).pushNamed('/settings'),
+            onSettings: () => unawaited(_openSettings()),
           ),
         ),
       ],

@@ -55,7 +55,7 @@ Future<void> initDependencies() async {
 
   // ── Detection datasource & repository ──────────────────────────────────────
   sl.registerLazySingleton<DetectionLocalDatasource>(
-    DetectionLocalDatasourceImpl.new,
+    () => DetectionLocalDatasourceImpl(sl<DetectionConfig>()),
   );
 
   sl.registerLazySingleton<DetectionRepository>(
