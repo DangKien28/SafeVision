@@ -13,6 +13,7 @@ import '../bloc/detection_event.dart';
 import '../bloc/detection_state.dart';
 import '../widgets/object_indicator_painter.dart';
 import '../widgets/confidence_score_display.dart';
+import '../widgets/detection_control_bar.dart';
 import '../../../tts/presentation/bloc/tts_bloc.dart';
 import '../../../tts/presentation/bloc/tts_event.dart';
 import '../../../tts/presentation/widgets/voice_feedback_indicator.dart';
@@ -380,7 +381,7 @@ class _DetectionPageState extends State<DetectionPage>
         // ── Bottom control bar ──────────────────────────────────────────────
         Align(
           alignment: Alignment.bottomCenter,
-          child: _ControlBar(
+          child: DetectionControlBar(
             onStop: () {
               _detectionBloc.add(const DetectionStopped());
               Navigator.of(context).pop();
@@ -401,7 +402,8 @@ class _DetectionPageState extends State<DetectionPage>
 
     final previewSize = controller.value.previewSize;
     final screenSize = MediaQuery.sizeOf(context);
-    final isPortrait = MediaQuery.orientationOf(context) == Orientation.portrait;
+    final isPortrait =
+        MediaQuery.orientationOf(context) == Orientation.portrait;
     final fallbackWidth = isPortrait ? screenSize.height : screenSize.width;
     final fallbackHeight = isPortrait ? screenSize.width : screenSize.height;
     final previewWidth = previewSize?.width ?? fallbackWidth;
@@ -504,6 +506,7 @@ class _ErrorOverlay extends StatelessWidget {
 
 // ── Bottom control bar ────────────────────────────────────────────────────────
 
+// ignore: unused_element
 class _ControlBar extends StatelessWidget {
   const _ControlBar({
     required this.onStop,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:safe_vision_app/features/detection/domain/entities/detection_object.dart';
+import 'package:safe_vision_app/features/detection/presentation/widgets/detection_control_bar.dart';
 import 'package:safe_vision_app/features/detection/presentation/widgets/confidence_score_display.dart';
 import 'package:safe_vision_app/features/detection/presentation/widgets/object_indicator_painter.dart';
 
@@ -103,6 +104,33 @@ void main() {
             label: 'cau_thang_rat_dai_va_to_lon_de_kiem_tra_overflow'),
       ]));
 
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('DetectionControlBar', () {
+    testWidgets('lays out without exceptions', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Stack(
+              fit: StackFit.expand,
+              children: [
+                Align(
+                  alignment: Alignment.bottomCenter,
+                  child: DetectionControlBar(
+                    onStop: () {},
+                    onSettings: () {},
+                    onSwitchCamera: () {},
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Dừng'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });
@@ -223,5 +251,4 @@ void main() {
       expect(painter.shouldRepaint(ObjectIndicatorPainter(boxes: [])), isFalse);
     });
   });
-
 }
