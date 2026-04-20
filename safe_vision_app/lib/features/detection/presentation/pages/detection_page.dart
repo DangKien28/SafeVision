@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -326,7 +327,7 @@ class _DetectionPageState extends State<DetectionPage>
       fit: StackFit.expand,
       children: [
         // ── Camera preview ──────────────────────────────────────────────────
-        const ColoredBox(color: Colors.black),
+        _buildCameraPreview(),
 
         // ── Bounding box overlay ────────────────────────────────────────────
         AnimatedBuilder(
@@ -357,11 +358,14 @@ class _DetectionPageState extends State<DetectionPage>
             alignment: Alignment.topRight,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(0, 48, 12, 0),
-              child: BlocBuilder<DetectionBloc, DetectionState>(
-                builder: (_, state) => ConfidenceScoreDisplay(
-                  detections: state is DetectionSuccess
-                      ? state.detections
-                      : <DetectionObject>[],
+              child: SizedBox(
+                width: 220,
+                child: BlocBuilder<DetectionBloc, DetectionState>(
+                  builder: (_, state) => ConfidenceScoreDisplay(
+                    detections: state is DetectionSuccess
+                        ? state.detections
+                        : <DetectionObject>[],
+                  ),
                 ),
               ),
             ),
@@ -380,6 +384,24 @@ class _DetectionPageState extends State<DetectionPage>
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildCameraPreview() {
+    final controller = _camera.controller;
+    if (controller == null || !controller.value.isInitialized) {
+      return const ColoredBox(color: Colors.black);
+    }
+
+    return Positioned.fill(
+      child: FittedBox(
+        fit: BoxFit.cover,
+        child: SizedBox(
+          width: controller.value.previewSize?.height ?? 1080,
+          height: controller.value.previewSize?.width ?? 1920,
+          child: CameraPreview(controller),
+        ),
+      ),
     );
   }
 }
