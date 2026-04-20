@@ -430,21 +430,55 @@ class _LoadingOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return BlocBuilder<DetectionBloc, DetectionState>(
       bloc: bloc,
       builder: (_, state) => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(color: Color(0xFF00E5FF)),
-            const SizedBox(height: 24),
-            Text(
-              state is DetectionLoading
-                  ? 'Đang tải mô hình AI...'
-                  : 'Đang khởi động camera...',
-              style: const TextStyle(color: Colors.white, fontSize: 18),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 320),
+          margin: const EdgeInsets.symmetric(horizontal: 24),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface.withValues(alpha: 0.9),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: theme.colorScheme.primary.withValues(alpha: 0.45),
             ),
-          ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Image.asset(
+                'assets/images/sv_logo.png',
+                semanticLabel: 'SafeVision Logo',
+                height: 64,
+                width: 64,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => Semantics(
+                  label: 'SafeVision Icon',
+                  child: Icon(
+                    Icons.visibility,
+                    size: 56,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              CircularProgressIndicator(color: theme.colorScheme.primary),
+              const SizedBox(height: 18),
+              Text(
+                state is DetectionLoading
+                    ? 'Đang tải mô hình AI...'
+                    : 'Đang khởi động camera...',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
