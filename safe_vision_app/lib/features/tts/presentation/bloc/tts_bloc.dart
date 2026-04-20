@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:vibration/vibration.dart';
 
 import '../../../../features/settings/domain/repositories/settings_repository.dart';
 import '../../../../features/tts/domain/entities/tts_playback_update.dart';
@@ -85,16 +86,33 @@ class TtsBloc extends Bloc<TtsEvent, TtsState> {
     }
 
     try {
-      if (event.immediate) {
-        await _speakWarning.immediate(event.text);
-      } else {
-        await _speakWarning(event.text);
+      final accepted = event.immediate
+          ? await _speakWarning.immediate(event.text)
+          : await _speakWarning(event.text);
+
+      if (!accepted) {
+        debugPrint('[TtsBloc] speak rejected by engine');
+        if (state is! TtsStopped) emit(const TtsStopped());
+        return;
       }
+
+      if (event.withVibration) {
+        await _triggerVibration();
+      }
+
       emit(TtsSpeaking(event.text));
     } catch (e) {
       debugPrint('[TtsBloc] speak error: $e');
       emit(TtsError(e.toString()));
     }
+  }
+
+  Future<void> _triggerVibration() async {
+    try {
+      if (await Vibration.hasVibrator()) {
+        Vibration.vibrate(duration: 200);
+      }
+    } catch (_) {}
   }
 
   Future<void> _onStop(TtsStop event, Emitter<TtsState> emit) async {
