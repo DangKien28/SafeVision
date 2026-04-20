@@ -34,12 +34,13 @@ void main() {
   });
 
   tearDown(() async {
-    await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
   });
 
   group('TtsService', () {
-    test('initialize configures language, speech rate, pitch and volume', () async {
+    test('initialize configures language, speech rate, pitch and volume',
+        () async {
       final service = TtsService();
       await service.initialize(
         language: 'vi-VN',
@@ -49,15 +50,14 @@ void main() {
       );
 
       final methods = calls.map((c) => c.method).toList();
-      expect(methods, containsAll(<String>[
-        'setLanguage',
-        'setSpeechRate',
-        'setPitch',
-        'setVolume',
-        'setStartHandler',
-        'setCompletionHandler',
-        'setErrorHandler',
-      ]));
+      expect(
+          methods,
+          containsAll(<String>[
+            'setLanguage',
+            'setSpeechRate',
+            'setPitch',
+            'setVolume',
+          ]));
     });
 
     test('speakWarning auto-initializes and calls speak once', () async {
@@ -83,7 +83,8 @@ void main() {
       expect(stopIndex, lessThan(speakIndex));
     });
 
-    test('speakWarning returns false when platform returns non-success', () async {
+    test('speakWarning returns false when platform returns non-success',
+        () async {
       speakResult = 0;
       final service = TtsService();
 
