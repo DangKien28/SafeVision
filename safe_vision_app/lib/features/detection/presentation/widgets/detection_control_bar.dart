@@ -12,46 +12,71 @@ class DetectionControlBar extends StatelessWidget {
   final VoidCallback onSettings;
   final VoidCallback onSwitchCamera;
 
-  static const double _kBarHeight = 88;
-  static const double _kStopButtonHeight = 56;
-  static const double _kStopButtonWidth = 148;
-
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return SafeArea(
-      child: Container(
-        width: double.infinity,
-        height: _kBarHeight,
-        color: Colors.black.withValues(alpha: 0.55),
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Row(
-          children: [
-            IconButton(
-              tooltip: 'Cài đặt',
-              icon: const Icon(Icons.settings, size: 32, color: Colors.white),
-              onPressed: onSettings,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: colorScheme.surface.withValues(alpha: 0.78),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: colorScheme.primary.withValues(alpha: 0.28),
             ),
-            const SizedBox(width: 12),
-            IconButton(
-              tooltip: 'Đổi camera',
-              icon: const Icon(
-                Icons.cameraswitch_outlined,
-                size: 32,
-                color: Colors.white,
-              ),
-              onPressed: onSwitchCamera,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                IconButton(
+                  tooltip: 'Cài đặt',
+                  style: IconButton.styleFrom(
+                    minimumSize: const Size(56, 56),
+                    foregroundColor: colorScheme.onSurface,
+                  ),
+                  icon: const Icon(Icons.settings, size: 30),
+                  onPressed: onSettings,
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  tooltip: 'Đổi camera',
+                  style: IconButton.styleFrom(
+                    minimumSize: const Size(56, 56),
+                    foregroundColor: colorScheme.onSurface,
+                  ),
+                  icon: const Icon(Icons.cameraswitch_outlined, size: 30),
+                  onPressed: onSwitchCamera,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 56),
+                    child: ElevatedButton.icon(
+                      style: theme.elevatedButtonTheme.style?.copyWith(
+                        minimumSize:
+                            const WidgetStatePropertyAll(Size(0, 56)),
+                        padding: const WidgetStatePropertyAll(
+                          EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                        ),
+                        textStyle: WidgetStatePropertyAll(
+                          theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      icon: const Icon(Icons.stop_circle_outlined, size: 24),
+                      label: const Text('Dừng', maxLines: 1),
+                      onPressed: onStop,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const Spacer(),
-            SizedBox(
-              width: _kStopButtonWidth,
-              height: _kStopButtonHeight,
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.stop_circle_outlined, size: 28),
-                label: const Text('Dừng'),
-                onPressed: onStop,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

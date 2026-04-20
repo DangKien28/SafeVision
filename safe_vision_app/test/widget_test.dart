@@ -109,7 +109,41 @@ void main() {
   });
 
   group('DetectionControlBar', () {
-    testWidgets('lays out without exceptions', (tester) async {
+    testWidgets('lays out without exceptions and keeps accessible stop height',
+        (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 280,
+                height: 140,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Align(
+                      alignment: Alignment.bottomCenter,
+                      child: DetectionControlBar(
+                        onStop: () {},
+                        onSettings: () {},
+                        onSwitchCamera: () {},
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final stopButton = find.widgetWithText(ElevatedButton, 'Dừng');
+      expect(stopButton, findsOneWidget);
+      expect(tester.getSize(stopButton).height, greaterThanOrEqualTo(56));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('renders on full-width layout without overflow', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(

@@ -1,5 +1,8 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+
 import '../bloc/tts_bloc.dart';
 import '../bloc/tts_state.dart';
 
@@ -8,35 +11,52 @@ class VoiceFeedbackIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return BlocBuilder<TtsBloc, TtsState>(
       builder: (context, state) {
         if (state is! TtsSpeaking) return const SizedBox.shrink();
 
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.65),
+        return ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: ClipRRect(
             borderRadius: BorderRadius.circular(20),
-            border:
-                Border.all(color: Colors.greenAccent.withValues(alpha: 0.6)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const _PulsingDot(),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  state.text,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: colorScheme.surface.withValues(alpha: 0.72),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: colorScheme.secondary.withValues(alpha: 0.7),
                   ),
-                  overflow: TextOverflow.ellipsis,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const _PulsingDot(),
+                    const SizedBox(width: 10),
+                    Flexible(
+                      child: Text(
+                        state.text,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: colorScheme.onSurface,
+                          height: 1.25,
+                        ),
+                        maxLines: 2,
+                        softWrap: true,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
+            ),
           ),
         );
       },
@@ -80,7 +100,10 @@ class _PulsingDotState extends State<_PulsingDot>
         height: 8,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: Colors.greenAccent.withValues(alpha: _anim.value),
+          color: Theme.of(context)
+              .colorScheme
+              .secondary
+              .withValues(alpha: _anim.value),
         ),
       ),
     );
