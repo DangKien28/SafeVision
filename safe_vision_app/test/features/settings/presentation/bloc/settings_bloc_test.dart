@@ -217,7 +217,7 @@ void main() {
 
   group('SettingsBasicDisplayModeToggled', () {
     blocTest<SettingsBloc, SettingsState>(
-      'bật/tắt chế độ cơ bản được lưu và cập nhật state',
+      'toggles basic mode, persists setting, and updates state',
       build: buildBloc,
       act: (bloc) async {
         bloc.add(const SettingsLoaded());

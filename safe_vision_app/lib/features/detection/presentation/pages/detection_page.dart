@@ -303,6 +303,12 @@ class _DetectionPageState extends State<DetectionPage>
     }
   }
 
+  /// Filters/sorts tracked detections for on-screen indicators in Basic mode.
+  ///
+  /// Basic mode keeps only visible detections and removes noisy points by
+  /// requiring either: (1) dangerous area, or (2) minimum consecutive stable
+  /// frames and minimum area. Remaining tracks are prioritized by danger,
+  /// confidence, then area, and capped to a small beginner-friendly count.
   List<TrackedDetection> _filterDisplayTracks(List<TrackedDetection> tracks) {
     if (!_basicDisplayModeEnabled) return tracks;
 
