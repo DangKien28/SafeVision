@@ -1,0 +1,25 @@
+name: Copilot Setup Steps
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2.14.0
+        with:
+          channel: stable
+          cache: true
+
+      - name: Verify Flutter installation
+        run: flutter --version
