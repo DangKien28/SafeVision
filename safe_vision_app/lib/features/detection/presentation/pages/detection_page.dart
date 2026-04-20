@@ -15,6 +15,7 @@ import '../widgets/object_indicator_painter.dart';
 import '../widgets/confidence_score_display.dart';
 import '../../../tts/presentation/bloc/tts_bloc.dart';
 import '../../../tts/presentation/bloc/tts_event.dart';
+import '../../../settings/domain/repositories/settings_repository.dart';
 
 /// Root page for the object-detection camera feed.
 ///
@@ -40,9 +41,13 @@ import '../../../tts/presentation/bloc/tts_event.dart';
   ///    and continues asynchronously (invoked via `unawaited` in this page's
   ///    dispose override).
 class DetectionPage extends StatefulWidget {
-  const DetectionPage({super.key});
+  const DetectionPage({
+    super.key,
+    required this.settingsRepository,
+  });
 
   static const routeName = '/detection';
+  final SettingsRepository settingsRepository;
 
   @override
   State<DetectionPage> createState() => _DetectionPageState();
@@ -58,6 +63,7 @@ class _DetectionPageState extends State<DetectionPage>
 
   late final TtsBloc _ttsBloc;
   late final DetectionBloc _detectionBloc;
+  late final SettingsRepository _settingsRepository;
   late final AnimationController _pulseController;
 
   // ── Rendering state ───────────────────────────────────────────────────────
@@ -67,6 +73,7 @@ class _DetectionPageState extends State<DetectionPage>
   bool _cameraReady = false;
   String? _errorMessage;
   bool _isDisposed = false;
+  bool _showConfidencePanel = true;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -76,6 +83,7 @@ class _DetectionPageState extends State<DetectionPage>
     WidgetsBinding.instance.addObserver(this);
 
     _ttsBloc = sl<TtsBloc>();
+    _settingsRepository = widget.settingsRepository;
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
@@ -88,7 +96,7 @@ class _DetectionPageState extends State<DetectionPage>
       onWarning: _onWarning,
     );
 
-    _detectionBloc.add(const DetectionStarted());
+    unawaited(_bootstrapDetection());
   }
 
   @override
@@ -166,6 +174,52 @@ class _DetectionPageState extends State<DetectionPage>
   /// sensor orientation.  The conventional default for rear-facing portrait is
   /// 90°.
   int get _sensorRotation => 90;
+
+  Future<void> _bootstrapDetection() async {
+    try {
+      await _loadShowConfidencePanelSetting();
+      if (_isDisposed || _detectionBloc.isClosed) return;
+      _detectionBloc.add(const DetectionStarted());
+    } catch (e) {
+      debugPrint('[DetectionPage] bootstrap error: $e');
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Không thể khởi động nhận diện. Vui lòng thử lại.';
+        });
+      }
+    }
+  }
+
+  Future<void> _loadShowConfidencePanelSetting() async {
+    try {
+      final show = await _settingsRepository.getShowConfidencePanel();
+      if (!mounted) return;
+      setState(() => _showConfidencePanel = show);
+    } catch (e) {
+      debugPrint('[DetectionPage] load showConfidencePanel error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Không thể tải cài đặt hiển thị.'),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _openSettings() async {
+    try {
+      await Navigator.of(context).pushNamed('/settings');
+      await _loadShowConfidencePanelSetting();
+    } catch (e) {
+      debugPrint('[DetectionPage] open settings error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không thể mở cài đặt. Vui lòng thử lại.')),
+        );
+      }
+    }
+  }
 
   // ── Warning callback ──────────────────────────────────────────────────────
 
@@ -266,19 +320,20 @@ class _DetectionPageState extends State<DetectionPage>
         ),
 
         // ── Confidence score panel ──────────────────────────────────────────
-        Align(
-          alignment: Alignment.topRight,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(0, 48, 12, 0),
-            child: BlocBuilder<DetectionBloc, DetectionState>(
-              builder: (_, state) => ConfidenceScoreDisplay(
-                detections: state is DetectionSuccess
-                    ? state.detections
-                    : <DetectionObject>[],
+        if (_showConfidencePanel)
+          Align(
+            alignment: Alignment.topRight,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(0, 48, 12, 0),
+              child: BlocBuilder<DetectionBloc, DetectionState>(
+                builder: (_, state) => ConfidenceScoreDisplay(
+                  detections: state is DetectionSuccess
+                      ? state.detections
+                      : <DetectionObject>[],
+                ),
               ),
             ),
           ),
-        ),
 
         // ── Bottom control bar ──────────────────────────────────────────────
         Align(
@@ -288,7 +343,7 @@ class _DetectionPageState extends State<DetectionPage>
               _detectionBloc.add(const DetectionStopped());
               Navigator.of(context).pop();
             },
-            onSettings: () => Navigator.of(context).pushNamed('/settings'),
+            onSettings: () => unawaited(_openSettings()),
           ),
         ),
       ],

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 
+import '../../../../core/config/detection_config.dart';
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/utils/image_converter.dart';
 import '../../../../core/models/camera_frame.dart';
@@ -258,7 +259,9 @@ double _iou(Map<String, dynamic> a, Map<String, dynamic> b) {
 }
 
 class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
-  DetectionLocalDatasourceImpl();
+  DetectionLocalDatasourceImpl(this._detectionConfig);
+
+  final DetectionConfig _detectionConfig;
 
   Isolate? _isolate;
   SendPort? _toIsolate;
@@ -323,9 +326,9 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
         srcWidth: frame.width,
         srcHeight: frame.height,
         rotationDegrees: rotationDegrees,
-        confidenceThreshold: AppConstants.confidenceThreshold,
-        iouThreshold: AppConstants.iouThreshold,
-        maxDetections: AppConstants.maxDetections,
+        confidenceThreshold: _detectionConfig.confidenceThreshold,
+        iouThreshold: _detectionConfig.iouThreshold,
+        maxDetections: _detectionConfig.maxDetections,
         inputSize: AppConstants.inputSize,
       ));
 
