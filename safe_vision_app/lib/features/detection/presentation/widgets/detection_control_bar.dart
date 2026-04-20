@@ -58,7 +58,7 @@ class DetectionControlBar extends StatelessWidget {
                     child: ElevatedButton.icon(
                       style: theme.elevatedButtonTheme.style?.copyWith(
                         minimumSize:
-                            const WidgetStatePropertyAll(Size(0, 56)),
+                            const WidgetStatePropertyAll(Size(56, 56)),
                         padding: const WidgetStatePropertyAll(
                           EdgeInsets.symmetric(horizontal: 18, vertical: 12),
                         ),

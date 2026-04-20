@@ -4,7 +4,6 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../../config/theme/app_theme.dart';
 import '../../../../core/services/camera_service.dart';
 import '../../../../core/utils/voice_helper.dart';
 import '../../../../injection_container.dart';
@@ -444,7 +443,7 @@ class _LoadingOverlay extends StatelessWidget {
             color: theme.colorScheme.surface.withValues(alpha: 0.9),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: AppTheme.primaryColor.withValues(alpha: 0.45),
+              color: theme.colorScheme.primary.withValues(alpha: 0.45),
             ),
           ),
           child: Column(
@@ -455,14 +454,14 @@ class _LoadingOverlay extends StatelessWidget {
                 height: 64,
                 width: 64,
                 fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => const Icon(
+                errorBuilder: (_, __, ___) => Icon(
                   Icons.visibility,
                   size: 56,
-                  color: AppTheme.primaryColor,
+                  color: theme.colorScheme.primary,
                 ),
               ),
               const SizedBox(height: 18),
-              const CircularProgressIndicator(color: AppTheme.primaryColor),
+              CircularProgressIndicator(color: theme.colorScheme.primary),
               const SizedBox(height: 18),
               Text(
                 state is DetectionLoading
@@ -470,7 +469,7 @@ class _LoadingOverlay extends StatelessWidget {
                     : 'Đang khởi động camera...',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyLarge?.copyWith(
-                  color: AppTheme.primaryColor,
+                  color: theme.colorScheme.primary,
                   fontWeight: FontWeight.w600,
                 ),
               ),
