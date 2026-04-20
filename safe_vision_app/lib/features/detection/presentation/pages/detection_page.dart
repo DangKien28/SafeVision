@@ -182,6 +182,11 @@ class _DetectionPageState extends State<DetectionPage>
       _detectionBloc.add(const DetectionStarted());
     } catch (e) {
       debugPrint('[DetectionPage] bootstrap error: $e');
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Không thể khởi động nhận diện. Vui lòng thử lại.';
+        });
+      }
     }
   }
 
@@ -192,6 +197,13 @@ class _DetectionPageState extends State<DetectionPage>
       setState(() => _showConfidencePanel = show);
     } catch (e) {
       debugPrint('[DetectionPage] load showConfidencePanel error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Không thể tải cài đặt hiển thị.'),
+          ),
+        );
+      }
     }
   }
 
