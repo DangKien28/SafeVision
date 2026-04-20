@@ -43,6 +43,8 @@ class _TtsPlaybackStopped extends TtsEvent {
 // ── TtsBloc ───────────────────────────────────────────────────────────────────
 
 class TtsBloc extends Bloc<TtsEvent, TtsState> {
+  static const int _kWarningVibrationDurationMs = 200;
+
   TtsBloc({
     required SpeakWarningUsecase speakWarning,
     required StopSpeakingUsecase stopSpeaking,
@@ -110,9 +112,11 @@ class TtsBloc extends Bloc<TtsEvent, TtsState> {
   Future<void> _triggerVibration() async {
     try {
       if (await Vibration.hasVibrator()) {
-        Vibration.vibrate(duration: 200);
+        await Vibration.vibrate(duration: _kWarningVibrationDurationMs);
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[TtsBloc] vibration error (ignored): $e');
+    }
   }
 
   Future<void> _onStop(TtsStop event, Emitter<TtsState> emit) async {
