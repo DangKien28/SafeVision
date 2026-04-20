@@ -52,6 +52,9 @@ class CameraService {
     _isFrontCamera = description.lensDirection == CameraLensDirection.front;
     _rotationDegrees = description.sensorOrientation;
 
+    // Use high preset for a clearer preview; inference remains throttled by FPS
+    // and frame-locking. If low-end devices regress, this should be made a
+    // runtime setting in app configuration.
     _controller = CameraController(
       description,
       ResolutionPreset.high,
@@ -91,6 +94,7 @@ class CameraService {
 
     await dispose();
 
+    // Keep the same quality choice after lens switching for consistent UX.
     _controller = CameraController(
       description,
       ResolutionPreset.high,

@@ -312,15 +312,10 @@ class _DetectionPageState extends State<DetectionPage>
   List<TrackedDetection> _filterDisplayTracks(List<TrackedDetection> tracks) {
     if (!_basicDisplayModeEnabled) return tracks;
 
-    final filtered = tracks.where((track) => track.isVisible).where((track) {
-      final area = track.detection.boundingBox.area;
-      if (area >= AppConstants.dangerousAreaThreshold) return true;
-      if (track.consecutiveVisibleFrames <
-          AppConstants.basicModeMinConsecutiveFrames) {
-        return false;
-      }
-      return area >= AppConstants.basicModeMinRenderableBoxArea;
-    }).toList(growable: false)
+    final filtered = tracks
+        .where((track) => track.isVisible)
+        .where(_shouldDisplayTrackInBasicMode)
+        .toList(growable: false)
       ..sort((a, b) {
         final dangerOrder = (b.detection.isDangerous ? 1 : 0) -
             (a.detection.isDangerous ? 1 : 0);
@@ -336,6 +331,16 @@ class _DetectionPageState extends State<DetectionPage>
       return filtered;
     }
     return filtered.take(AppConstants.basicModeMaxIndicators).toList();
+  }
+
+  bool _shouldDisplayTrackInBasicMode(TrackedDetection track) {
+    final area = track.detection.boundingBox.area;
+    if (area >= AppConstants.dangerousAreaThreshold) return true;
+    if (track.consecutiveVisibleFrames <
+        AppConstants.basicModeMinConsecutiveFrames) {
+      return false;
+    }
+    return area >= AppConstants.basicModeMinRenderableBoxArea;
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
