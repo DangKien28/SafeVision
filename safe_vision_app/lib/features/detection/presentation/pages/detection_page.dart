@@ -201,6 +201,11 @@ class _DetectionPageState extends State<DetectionPage>
       await _loadShowConfidencePanelSetting();
     } catch (e) {
       debugPrint('[DetectionPage] open settings error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không thể mở cài đặt. Vui lòng thử lại.')),
+        );
+      }
     }
   }
 
@@ -326,7 +331,7 @@ class _DetectionPageState extends State<DetectionPage>
               _detectionBloc.add(const DetectionStopped());
               Navigator.of(context).pop();
             },
-            onSettings: _openSettings,
+            onSettings: () => unawaited(_openSettings()),
           ),
         ),
       ],
@@ -425,7 +430,7 @@ class _ControlBar extends StatelessWidget {
   });
 
   final VoidCallback onStop;
-  final Future<void> Function() onSettings;
+  final VoidCallback onSettings;
 
   @override
   Widget build(BuildContext context) {
