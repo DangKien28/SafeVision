@@ -5,7 +5,7 @@
 SafeVision is a Flutter mobile app that helps visually impaired users identify objects
 in their surroundings using a real-time camera feed with a YOLOv8 model via TFLite.
 
-**Target Platforms:** Android, iOS, Windows, macOS, Linux, Web
+**Target Platforms:** Android, iOS, Windows, macOS, Linux
 
 ## Architecture Pattern: Clean Architecture + BLoC
 
@@ -58,23 +58,13 @@ lib/features/{feature_name}/
 2. `onFrame` dispatches `DetectionFrameReceived` to `DetectionBloc`
 3. `DetectionBloc` calls the `DetectionObjectFromFrame` use case
 4. Inference runs in an isolate — the model outputs `List<DetectionObject>`
-5. Bounding boxes are rendered via `BoundingBoxPainter` (custom painter)
+5. Detection indicators are rendered via `ObjectIndicatorPainter` (custom painter)
 6. TTS announces detected objects via `TtsBloc` → `TtsService`
 
 **Frame Lock Pattern:** `CameraService` holds a lock `_isProcessingFrame`.
 `DetectionFrameReceived` carries an `onDone` callback that MUST be called
 after inference completes (in a `finally` block) to release the lock.
 If `onDone` is never called, the camera stream will stall permanently.
-
-### Recognition Entity
-```dart
-class Recognition {
-  final int id;
-  final String label;
-  final double score;
-  final BoundingBox location; // Bounding box for UI rendering
-}
-```
 
 ### UseCase Pattern
 
@@ -93,13 +83,19 @@ two parameters — it is called directly from `DetectionBloc`.
 - **Haptic Feedback:** Vibration when a dangerous object is detected (only when
   TTS actually passes the cooldown — not on every event)
 
-### BoundingBoxPainter
+### ObjectIndicatorPainter
 
 - `shouldRepaint` uses an O(1) `version` counter — does not iterate the list
 - TextPainter is cached per label in the static `_textCache`
 - Call `dispose()` when the painter is no longer in use to clear its cache entry
-- In tests: call `BoundingBoxPainter.clearCacheForTesting()` in `tearDown`
+- In tests: call `ObjectIndicatorPainter.clearCacheForTesting()` in `tearDown`
   to reset the static cache between test groups
+
+## Web Support
+
+The app includes Flutter web scaffolding, but object detection inference via
+`tflite_flutter` is not supported on Web. Treat Web as non-production for AI
+detection features until a web-compatible inference backend is introduced.
 
 ## Build & Development
 

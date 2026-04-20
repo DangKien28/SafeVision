@@ -59,7 +59,7 @@ fix(tts): remove double enqueue in speakWarning (SV-001)
 fix(detection): reset _isolateBusy in finally block (SV-002)
 fix(detection): add CloseModelUsecase per clean architecture (SV-007)
 feat(detection): use frame locking via onDone callback (SV-009)
-perf(ui): use version counter in BoundingBoxPainter.shouldRepaint (SV-011)
+perf(ui): use version counter in ObjectIndicatorPainter.shouldRepaint (SV-011)
 test(tts): add unit tests for cooldown logic in speakWarning
 chore(ci): switch Flutter pin to stable channel
 fix(settings): forward speechRate when changing TTS language (SV-006)

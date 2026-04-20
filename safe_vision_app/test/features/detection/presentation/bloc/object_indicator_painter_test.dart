@@ -3,7 +3,6 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:safe_vision_app/features/detection/domain/entities/detection_object.dart';
 import 'package:safe_vision_app/features/detection/presentation/widgets/object_indicator_painter.dart';
 
 Future<int> alphaAt({
@@ -245,48 +244,6 @@ void main() {
           boxes: const [], mirrorHorizontal: false, version: 3);
 
       expect(painter1.shouldRepaint(painter2), isFalse);
-    });
-  });
-
-  // BoxTracker version counter
-
-  group('Bộ đếm version của BoxTracker', () {
-    DetectionObject makeDetection({
-      String label = 'nguoi_di_bo',
-      double left = 0.1,
-      double w = 0.2,
-      double h = 0.3,
-    }) =>
-        DetectionObject(
-          label: label,
-          confidence: 0.9,
-          boundingBox: BoundingBox(left: left, top: 0.1, width: w, height: h),
-        );
-
-    test('version bắt đầu từ 0', () {
-      final tracker = BoxTracker();
-      expect(tracker.version, equals(0));
-    });
-
-    test('version increments after each update', () {
-      final tracker = BoxTracker();
-      tracker.update([makeDetection()]);
-      expect(tracker.version, equals(1));
-      tracker.update([makeDetection()]);
-      expect(tracker.version, equals(2));
-    });
-
-    test('version tăng sau clear()', () {
-      final tracker = BoxTracker();
-      final vBefore = tracker.version;
-      tracker.clear();
-      expect(tracker.version, greaterThan(vBefore));
-    });
-
-    test('update rỗng vẫn tăng version', () {
-      final tracker = BoxTracker();
-      tracker.update([]);
-      expect(tracker.version, equals(1));
     });
   });
 
