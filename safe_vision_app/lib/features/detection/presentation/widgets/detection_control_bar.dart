@@ -11,7 +11,7 @@ class DetectionControlBar extends StatelessWidget {
   final VoidCallback onStop;
   final VoidCallback onSettings;
   final VoidCallback onSwitchCamera;
-  static const double _kMinAccessibleTouchTarget = 56;
+  static const double _kMinAccessibleTouchTarget = 80;
 
   @override
   Widget build(BuildContext context) {
