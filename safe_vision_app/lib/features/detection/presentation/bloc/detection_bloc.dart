@@ -4,9 +4,13 @@ import 'package:bloc/bloc.dart';
 import 'package:bloc_concurrency/bloc_concurrency.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../../../core/constants/app_constants.dart';
 import '../../../../core/usecases/usecase.dart';
 import '../../domain/entities/tracked_detection.dart';
+import '../../domain/services/alert_policy_engine.dart';
 import '../../domain/services/object_tracker.dart';
+import '../../domain/services/realtime_pipeline_monitor.dart';
+import '../../domain/services/vision_quality_evaluator.dart';
 import '../../domain/usecases/close_model_usecase.dart';
 import '../../domain/usecases/detection_object_from_frame.dart';
 import '../../domain/usecases/load_model_usecase.dart';
@@ -20,17 +24,6 @@ typedef DetectionWarningCallback = void Function({
   required bool immediate,
   required bool withVibration,
 });
-
-// ── Track stability bookkeeping ───────────────────────────────────────────────
-
-/// Minimum consecutive frames a track must be seen before announcing.
-const int _kStabilityFrames = 2;
-
-/// Per-track warning throttle state.
-class _TrackInfo {
-  int seenCount = 0;
-  bool warned = false;
-}
 
 // ── DetectionBloc ─────────────────────────────────────────────────────────────
 
@@ -59,8 +52,8 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
   int _frameEpoch = 0;
 
   final ObjectTracker _tracker = ObjectTracker();
-
-  final Map<int, _TrackInfo> _trackInfos = {};
+  final AlertPolicyEngine _alertPolicy = AlertPolicyEngine();
+  final RealtimePipelineMonitor _pipelineMonitor = RealtimePipelineMonitor();
 
   bool get _stateAllowsFrames =>
       state is DetectionModelReady || state is DetectionSuccess;
@@ -94,7 +87,8 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
       _frameEpoch++;
       emit(const DetectionLoading());
       _tracker.clear();
-      _trackInfos.clear();
+      _alertPolicy.reset();
+      _pipelineMonitor.reset();
 
       try {
         await _releaseModelIfNeeded();
@@ -116,7 +110,8 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
     await _serializeLifecycle(() async {
       _frameEpoch++;
       _tracker.clear();
-      _trackInfos.clear();
+      _alertPolicy.reset();
+      _pipelineMonitor.reset();
       await _releaseModelIfNeeded(force: true);
       emit(const DetectionInitial());
     });
@@ -135,9 +130,25 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
     final frameEpoch = _frameEpoch;
 
     try {
+      final frameStartedAt = DateTime.now();
+      final visibilityScore = VisionQualityEvaluator.score(event.frame);
+      final lowVisibility =
+          visibilityScore < AppConstants.lowVisibilityThreshold;
+      _pipelineMonitor.onVisibilityUpdated(
+        lowVisibility: lowVisibility,
+        visibilityScore: visibilityScore,
+      );
+
       final detections = await _detectFromFrame(
         event.frame,
         rotationDegrees: event.rotationDegrees,
+      );
+      final inferenceMs =
+          DateTime.now().difference(frameStartedAt).inMicroseconds / 1000.0;
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      _pipelineMonitor.onFrameProcessed(
+        nowMs: nowMs,
+        inferenceMs: inferenceMs,
       );
 
       final canEmitResult = _stateAllowsFrames;
@@ -148,10 +159,15 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
       emit(DetectionSuccess(
         detections: detections,
         trackedDetections: tracked,
-        timestamp: DateTime.now().millisecondsSinceEpoch,
+        timestamp: nowMs,
+        pipelineMetrics: _pipelineMonitor.snapshot(nowMs),
       ));
 
-      _handleWarnings(tracked);
+      _handleWarnings(
+        trackedDetections: tracked,
+        lowVisibility: lowVisibility,
+        nowMs: nowMs,
+      );
     } catch (e) {
       debugPrint('[DetectionBloc] inference error (frame skipped): $e');
     } finally {
@@ -159,36 +175,30 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
     }
   }
 
-  // ── Warning throttle ────────────────────────────────────────────────────────
+  // ── Warning policy ──────────────────────────────────────────────────────────
 
-  void _handleWarnings(List<TrackedDetection> trackedDetections) {
-    final visibleTracks =
-        trackedDetections.where((track) => track.isVisible).toList();
-    if (visibleTracks.isEmpty) return;
+  void _handleWarnings({
+    required List<TrackedDetection> trackedDetections,
+    required bool lowVisibility,
+    required int nowMs,
+  }) {
+    final decision = _alertPolicy.evaluate(
+      trackedDetections: trackedDetections,
+      lowVisibility: lowVisibility,
+      nowMs: nowMs,
+    );
+    if (decision == null) return;
 
-    final currentTrackIds = visibleTracks.map((track) => track.trackId).toSet();
-    _trackInfos.removeWhere((trackId, _) => !currentTrackIds.contains(trackId));
+    _onWarning(
+      text: decision.text,
+      immediate: decision.immediate,
+      withVibration: decision.withVibration,
+    );
+    _pipelineMonitor.onAlertSent(nowMs);
+  }
 
-    for (final tracked in visibleTracks) {
-      final detection = tracked.detection;
-      final info = _trackInfos.putIfAbsent(tracked.trackId, _TrackInfo.new);
-
-      info.seenCount++;
-
-      // Wait for _kStabilityFrames before the first warning.
-      if (info.seenCount < _kStabilityFrames) continue;
-
-      // Safe objects warn once; dangerous objects re-warn on every frame.
-      if (info.warned && !detection.isDangerous) continue;
-      _onWarning(
-        text: detection.voiceWarning,
-        immediate: detection.isDangerous,
-        withVibration: detection.isDangerous,
-      );
-
-      // Dangerous objects re-warn every time; safe ones warn once per track.
-      if (!detection.isDangerous) info.warned = true;
-    }
+  void recordDroppedFrame(PipelineDropReason reason) {
+    _pipelineMonitor.onFrameDropped(reason);
   }
 
   // ── Lifecycle ───────────────────────────────────────────────────────────────

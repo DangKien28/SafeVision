@@ -21,7 +21,11 @@ class MockCloseModelUsecase extends Mock implements CloseModelUsecase {}
 class MockDetectFromFrame extends Mock implements DetectionObjectFromFrame {}
 
 CameraFrame fakeCameraFrame() => CameraFrame(
-      planes: [Uint8List(0), Uint8List(0), Uint8List(0)],
+      planes: [
+        Uint8List.fromList(List<int>.filled(256, 128)),
+        Uint8List.fromList(List<int>.filled(64, 64)),
+        Uint8List.fromList(List<int>.filled(64, 64)),
+      ],
       rowStrides: [640, 320, 320],
       pixelStrides: [1, 2, 2],
       width: 640,
@@ -405,7 +409,7 @@ void main() {
       await bloc.close();
     });
 
-    test('dangerous object re-warns on every frame after stability', () async {
+    test('dangerous object is throttled to avoid warning spam', () async {
       var warningCount = 0;
 
       when(() => mockDetectFromFrame(any(),
@@ -432,16 +436,15 @@ void main() {
       await Future.delayed(const Duration(milliseconds: 20));
       expect(warningCount, 1);
 
-      // Frame 3+: dangerous → warns on every subsequent frame.
+      // Frame 3+: dangerous alerts are throttled by cooldown.
       bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
       await Future.delayed(const Duration(milliseconds: 20));
-      expect(warningCount, 2,
-          reason:
-              'Dangerous object must re-warn on every frame after stability.');
+      expect(warningCount, 1,
+          reason: 'Dangerous alerts should not spam on every frame.');
 
       bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
       await Future.delayed(const Duration(milliseconds: 20));
-      expect(warningCount, 3);
+      expect(warningCount, 1);
 
       await bloc.close();
     });

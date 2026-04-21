@@ -9,6 +9,8 @@ import '../../../../core/services/camera_service.dart';
 import '../../../../core/utils/voice_helper.dart';
 import '../../../../injection_container.dart';
 import '../../domain/entities/detection_object.dart';
+import '../../domain/entities/realtime_pipeline_metrics.dart';
+import '../../domain/services/realtime_pipeline_monitor.dart';
 import '../../domain/entities/tracked_detection.dart';
 import '../bloc/detection_bloc.dart';
 import '../bloc/detection_event.dart';
@@ -125,7 +127,12 @@ class _DetectionPageState extends State<DetectionPage>
       case AppLifecycleState.resumed:
         if (_cameraReady) {
           unawaited(
-            _camera.startImageStream(onFrame: _onFrame).catchError((Object e) {
+            _camera
+                .startImageStream(
+              onFrame: _onFrame,
+              onFrameDropped: _onFrameDropped,
+            )
+                .catchError((Object e) {
               debugPrint('[DetectionPage] stream resume error: $e');
             }),
           );
@@ -167,7 +174,10 @@ class _DetectionPageState extends State<DetectionPage>
   Future<void> _startCamera() async {
     try {
       await _camera.initialize();
-      await _camera.startImageStream(onFrame: _onFrame);
+      await _camera.startImageStream(
+        onFrame: _onFrame,
+        onFrameDropped: _onFrameDropped,
+      );
       if (mounted) setState(() => _cameraReady = true);
     } catch (e) {
       if (mounted) setState(() => _errorMessage = e.toString());
@@ -182,6 +192,15 @@ class _DetectionPageState extends State<DetectionPage>
 
     _detectionBloc.add(
       DetectionFrameReceived(frame, _sensorRotation, onDone),
+    );
+  }
+
+  void _onFrameDropped(FrameDropReason reason) {
+    if (_isDisposed || _detectionBloc.isClosed) return;
+    _detectionBloc.recordDroppedFrame(
+      reason == FrameDropReason.busy
+          ? PipelineDropReason.busy
+          : PipelineDropReason.throttled,
     );
   }
 
@@ -248,7 +267,10 @@ class _DetectionPageState extends State<DetectionPage>
     try {
       await _camera.stopImageStream();
       await _camera.switchCamera();
-      await _camera.startImageStream(onFrame: _onFrame);
+      await _camera.startImageStream(
+        onFrame: _onFrame,
+        onFrameDropped: _onFrameDropped,
+      );
       if (mounted) setState(() {});
     } catch (e) {
       debugPrint('[DetectionPage] switch camera error: $e');
@@ -407,6 +429,21 @@ class _DetectionPageState extends State<DetectionPage>
           ),
         ),
 
+        Align(
+          alignment: Alignment.topLeft,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 48, 0, 0),
+            child: BlocBuilder<DetectionBloc, DetectionState>(
+              builder: (_, state) {
+                final metrics = state is DetectionSuccess
+                    ? state.pipelineMetrics
+                    : const RealtimePipelineMetrics.empty();
+                return _PipelineMetricsPanel(metrics: metrics);
+              },
+            ),
+          ),
+        ),
+
         // ── Confidence score panel ──────────────────────────────────────────
         if (_showConfidencePanel)
           Align(
@@ -527,6 +564,44 @@ class _LoadingOverlay extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PipelineMetricsPanel extends StatelessWidget {
+  const _PipelineMetricsPanel({required this.metrics});
+
+  final RealtimePipelineMetrics metrics;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: metrics.lowVisibility
+              ? Colors.orangeAccent
+              : Colors.white.withValues(alpha: 0.2),
+        ),
+      ),
+      child: DefaultTextStyle(
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('FPS: ${metrics.fps.toStringAsFixed(1)}'),
+            Text('Infer: ${metrics.lastInferenceMs.toStringAsFixed(0)}ms'),
+            Text('Drop: ${metrics.droppedFramesTotal}'),
+            if (metrics.lowVisibility) const Text('Tầm nhìn kém'),
+          ],
         ),
       ),
     );

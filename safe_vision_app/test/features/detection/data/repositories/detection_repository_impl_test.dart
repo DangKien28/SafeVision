@@ -90,8 +90,8 @@ void main() {
       expect(result[0].confidence, 0.95);
       expect(result[0].boundingBox.left, 0.1);
       expect(result[0].boundingBox.top, 0.2);
-      expect(result[0].boundingBox.width, 0.3);
-      expect(result[0].boundingBox.height, 0.4);
+      expect(result[0].boundingBox.width, closeTo(0.3, 1e-10));
+      expect(result[0].boundingBox.height, closeTo(0.4, 1e-10));
       expect(result[1].label, 'balo');
       expect(result[1].confidence, 0.80);
     });

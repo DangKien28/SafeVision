@@ -15,6 +15,8 @@ import '../models/camera_frame.dart';
 // the two were used together (datasource, repository, use-case, tests).
 export '../models/camera_frame.dart' show CameraFrame;
 
+enum FrameDropReason { throttled, busy }
+
 /// Manages the device camera lifecycle and delivers frames to callers.
 class CameraService {
   CameraService();
@@ -118,6 +120,7 @@ class CameraService {
   /// frame lock and allow the next frame to be delivered.
   Future<void> startImageStream({
     required void Function(CameraFrame frame, VoidCallback onDone) onFrame,
+    void Function(FrameDropReason reason)? onFrameDropped,
   }) async {
     _assertInitialized();
 
@@ -128,8 +131,14 @@ class CameraService {
 
     await _controller!.startImageStream((CameraImage image) {
       final now = DateTime.now();
-      if (now.difference(lastFrameTime) < interval) return;
-      if (_isProcessingFrame) return;
+      if (now.difference(lastFrameTime) < interval) {
+        onFrameDropped?.call(FrameDropReason.throttled);
+        return;
+      }
+      if (_isProcessingFrame) {
+        onFrameDropped?.call(FrameDropReason.busy);
+        return;
+      }
 
       _isProcessingFrame = true;
       lastFrameTime = now;
