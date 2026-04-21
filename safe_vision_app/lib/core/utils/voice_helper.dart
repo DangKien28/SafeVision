@@ -15,6 +15,7 @@ abstract class VoiceHelper {
     'lua': 'lửa',
     'laptop': 'laptop',
     'dien_thoai': 'điện thoại',
+    'doi_tuong': 'đối tượng',
   };
 
   /// Returns the Vietnamese display name for a raw model label.
