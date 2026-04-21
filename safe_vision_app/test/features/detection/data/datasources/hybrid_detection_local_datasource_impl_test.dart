@@ -147,7 +147,7 @@ void main() {
         primaryDatasource: primary,
         fallbackDatasource: fallback,
         enableFallback: true,
-        fallbackIntervalFrames: 1,
+        fallbackIntervalFrames: 3,
       );
       await hybrid.loadModel();
 

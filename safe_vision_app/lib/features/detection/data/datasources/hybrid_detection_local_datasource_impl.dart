@@ -12,8 +12,12 @@ class HybridDetectionLocalDatasourceImpl implements DetectionLocalDatasource {
   })  : _primaryDatasource = primaryDatasource,
         _fallbackDatasource = fallbackDatasource,
         _enableFallback = enableFallback,
-        _fallbackIntervalFrames =
-            fallbackIntervalFrames < 1 ? 1 : fallbackIntervalFrames;
+        _fallbackIntervalFrames = fallbackIntervalFrames.clamp(1, 60).toInt() {
+    assert(
+      fallbackIntervalFrames >= 1,
+      'fallbackIntervalFrames must be at least 1',
+    );
+  }
 
   final DetectionLocalDatasource _primaryDatasource;
   final DetectionLocalDatasource _fallbackDatasource;
@@ -37,6 +41,7 @@ class HybridDetectionLocalDatasourceImpl implements DetectionLocalDatasource {
   }) async {
     _frameCounter++;
 
+    var primaryFailed = false;
     List<Map<String, dynamic>> primaryResults;
     try {
       primaryResults = await _primaryDatasource.runInference(
@@ -46,11 +51,12 @@ class HybridDetectionLocalDatasourceImpl implements DetectionLocalDatasource {
     } catch (e) {
       debugPrint('[HybridDatasource] primary inference error: $e');
       primaryResults = [];
+      primaryFailed = true;
     }
 
     final shouldTryFallback = _enableFallback &&
         primaryResults.isEmpty &&
-        (_frameCounter % _fallbackIntervalFrames == 0);
+        (primaryFailed || _frameCounter % _fallbackIntervalFrames == 0);
     if (!shouldTryFallback) return primaryResults;
 
     try {
@@ -68,9 +74,7 @@ class HybridDetectionLocalDatasourceImpl implements DetectionLocalDatasource {
   @override
   Future<void> closeModel() async {
     await _primaryDatasource.closeModel();
-    if (_enableFallback) {
-      await _fallbackDatasource.closeModel();
-    }
+    await _fallbackDatasource.closeModel();
     _frameCounter = 0;
   }
 }

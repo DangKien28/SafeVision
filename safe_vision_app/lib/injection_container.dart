@@ -60,6 +60,8 @@ Future<void> initDependencies() async {
   sl.registerLazySingleton<DetectionLocalDatasource>(
     () => HybridDetectionLocalDatasourceImpl(
       primaryDatasource: DetectionLocalDatasourceImpl(sl<DetectionConfig>()),
+      // NOTE: ML Kit inference runs on the platform thread (no isolate).
+      // Keep fallback frequency controlled to reduce UI jank on low-end devices.
       fallbackDatasource: MlKitDetectionLocalDatasourceImpl(
         sl<DetectionConfig>(),
       ),

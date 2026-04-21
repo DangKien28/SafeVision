@@ -5,11 +5,14 @@ import 'package:flutter/foundation.dart';
 import 'package:google_mlkit_object_detection/google_mlkit_object_detection.dart';
 
 import '../../../../core/config/detection_config.dart';
+import '../../../../core/constants/app_constants.dart';
 import '../../../../core/models/camera_frame.dart';
 import 'detection_local_datasource.dart';
 
 class MlKitDetectionLocalDatasourceImpl implements DetectionLocalDatasource {
   MlKitDetectionLocalDatasourceImpl(this._detectionConfig);
+
+  static const String _unknownLabel = 'doi_tuong';
 
   final DetectionConfig _detectionConfig;
   ObjectDetector? _detector;
@@ -17,7 +20,8 @@ class MlKitDetectionLocalDatasourceImpl implements DetectionLocalDatasource {
 
   @override
   Future<void> loadModel() async {
-    _detector ??= ObjectDetector(
+    if (_detector != null) return;
+    _detector = ObjectDetector(
       options: ObjectDetectorOptions(
         mode: DetectionMode.stream,
         classifyObjects: true,
@@ -36,7 +40,10 @@ class MlKitDetectionLocalDatasourceImpl implements DetectionLocalDatasource {
     _isBusy = true;
     try {
       final input = _toInputImage(frame, rotationDegrees);
-      final detected = await _detector!.processImage(input);
+      final detected = await _detector!.processImage(input).timeout(
+            const Duration(milliseconds: AppConstants.inferenceTimeoutMs),
+            onTimeout: () => <DetectedObject>[],
+          );
       return _mapDetectedObjects(detected, frame.width, frame.height);
     } catch (e) {
       debugPrint('[MlKitDatasource] runInference error: $e');
@@ -57,13 +64,16 @@ class MlKitDetectionLocalDatasourceImpl implements DetectionLocalDatasource {
   }
 
   InputImage _toInputImage(CameraFrame frame, int rotationDegrees) {
-    final bytesBuilder = BytesBuilder(copy: false);
+    final totalLength = frame.planes.fold<int>(0, (sum, p) => sum + p.length);
+    final bytes = Uint8List(totalLength);
+    var offset = 0;
     for (final plane in frame.planes) {
-      bytesBuilder.add(plane);
+      bytes.setRange(offset, offset + plane.length, plane);
+      offset += plane.length;
     }
 
     return InputImage.fromBytes(
-      bytes: bytesBuilder.takeBytes(),
+      bytes: bytes,
       metadata: InputImageMetadata(
         size: Size(frame.width.toDouble(), frame.height.toDouble()),
         rotation: _rotationFromDegrees(rotationDegrees),
@@ -88,8 +98,9 @@ class MlKitDetectionLocalDatasourceImpl implements DetectionLocalDatasource {
               .first;
 
       final confidence = bestLabel?.confidence ?? 0.5;
-      final label =
-          (bestLabel?.text.isNotEmpty ?? false) ? bestLabel!.text : 'doi_tuong';
+      final label = (bestLabel?.text.isNotEmpty ?? false)
+          ? bestLabel!.text
+          : _unknownLabel;
 
       final left = (obj.boundingBox.left / width).clamp(0.0, 1.0);
       final top = (obj.boundingBox.top / height).clamp(0.0, 1.0);
