@@ -176,7 +176,7 @@ void main() {
         ),
       );
       expect(stopButton, findsOneWidget);
-      expect(tester.getSize(stopButton).height, greaterThanOrEqualTo(56));
+      expect(tester.getSize(stopButton).height, greaterThanOrEqualTo(80));
     });
 
     testWidgets('renders on full-width layout without overflow', (tester) async {
