@@ -3,6 +3,26 @@ import 'package:flutter/foundation.dart';
 import '../../../../core/models/camera_frame.dart';
 import 'detection_local_datasource.dart';
 
+/// Runs primary inference on every frame and falls back to [_fallbackDatasource]
+/// when the primary returns an empty result set.
+///
+/// ## Fallback trigger rules
+///
+/// The fallback is attempted when ALL of the following are true:
+/// 1. [_enableFallback] is `true`.
+/// 2. The primary returned an empty list (either normally or by throwing).
+/// 3. At least one of:
+///    - The primary **threw an exception** (`primaryFailed == true`), OR
+///    - The current frame counter is a multiple of [_fallbackIntervalFrames].
+///
+/// Forcing the fallback on exception (regardless of interval) prevents a
+/// silently-failing primary from starving the user of any detections.
+///
+/// ## Lifecycle
+///
+/// [closeModel] always closes **both** datasources unconditionally, even when
+/// [_enableFallback] is `false`.  This is safe because [closeModel] is a
+/// no-op on a datasource that was never loaded.
 class HybridDetectionLocalDatasourceImpl implements DetectionLocalDatasource {
   HybridDetectionLocalDatasourceImpl({
     required DetectionLocalDatasource primaryDatasource,
@@ -12,12 +32,10 @@ class HybridDetectionLocalDatasourceImpl implements DetectionLocalDatasource {
   })  : _primaryDatasource = primaryDatasource,
         _fallbackDatasource = fallbackDatasource,
         _enableFallback = enableFallback,
-        _fallbackIntervalFrames = fallbackIntervalFrames.clamp(1, 60).toInt() {
-    assert(
-      fallbackIntervalFrames >= 1,
-      'fallbackIntervalFrames must be at least 1',
-    );
-  }
+        // Clamp ensures the interval is always a usable positive integer.
+        // Values ≤ 0 are not meaningful and would cause every frame to trigger
+        // the fallback, defeating the purpose of the interval.
+        _fallbackIntervalFrames = fallbackIntervalFrames.clamp(1, 60).toInt();
 
   final DetectionLocalDatasource _primaryDatasource;
   final DetectionLocalDatasource _fallbackDatasource;
@@ -54,6 +72,9 @@ class HybridDetectionLocalDatasourceImpl implements DetectionLocalDatasource {
       primaryFailed = true;
     }
 
+    // Bypass the interval check when the primary threw an exception — a
+    // crashing primary should trigger the fallback immediately rather than
+    // waiting for the next scheduled interval frame.
     final shouldTryFallback = _enableFallback &&
         primaryResults.isEmpty &&
         (primaryFailed || _frameCounter % _fallbackIntervalFrames == 0);
@@ -73,6 +94,9 @@ class HybridDetectionLocalDatasourceImpl implements DetectionLocalDatasource {
 
   @override
   Future<void> closeModel() async {
+    // Always close both datasources unconditionally.  When _enableFallback is
+    // false the fallback datasource was never loaded, but calling closeModel()
+    // on an unloaded datasource is defined as a safe no-op by the contract.
     await _primaryDatasource.closeModel();
     await _fallbackDatasource.closeModel();
     _frameCounter = 0;

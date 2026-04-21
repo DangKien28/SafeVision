@@ -168,7 +168,13 @@ void main() {
         ),
       );
 
-      final stopButton = find.widgetWithText(ElevatedButton, 'Dừng');
+      final stopButton = find.ancestor(
+        of: find.text('Dừng'),
+        matching: find.byWidgetPredicate(
+          (widget) => widget is ElevatedButton,
+          description: 'an ElevatedButton ancestor',
+        ),
+      );
       expect(stopButton, findsOneWidget);
       expect(tester.getSize(stopButton).height, greaterThanOrEqualTo(56));
     });

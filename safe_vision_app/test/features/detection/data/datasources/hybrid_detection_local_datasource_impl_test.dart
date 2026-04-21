@@ -128,7 +128,13 @@ void main() {
       expect(fallback.runCount, 1);
     });
 
-    test('falls back when primary throws', () async {
+    // When the primary throws an exception the fallback is attempted immediately,
+    // bypassing the interval check.  This test uses fallbackIntervalFrames: 3
+    // (so the interval check alone would NOT trigger on frame 1) to prove that
+    // the exception path overrides the interval gate.
+    test(
+        'falls back immediately when primary throws, regardless of frame interval',
+        () async {
       final primary = _FakeDatasource(throwOnRun: true);
       final fallback = _FakeDatasource(
         results: const [
@@ -143,6 +149,9 @@ void main() {
         ],
       );
 
+      // fallbackIntervalFrames: 3 means interval alone would not trigger
+      // on the first frame (1 % 3 != 0).  The fallback must fire anyway
+      // because the primary threw.
       final hybrid = HybridDetectionLocalDatasourceImpl(
         primaryDatasource: primary,
         fallbackDatasource: fallback,
@@ -155,6 +164,102 @@ void main() {
           await hybrid.runInference(_fakeFrame(), rotationDegrees: 90);
 
       expect(result.first['label'], 'bag');
+      expect(fallback.runCount, 1,
+          reason: 'Fallback must be called even though frame 1 % 3 != 0');
+    });
+
+    test('does not use fallback when enableFallback is false', () async {
+      final primary = _FakeDatasource(results: const []);
+      final fallback = _FakeDatasource(
+        results: const [
+          {
+            'label': 'person',
+            'confidence': 0.8,
+            'left': 0,
+            'top': 0,
+            'width': 1,
+            'height': 1
+          },
+        ],
+      );
+
+      final hybrid = HybridDetectionLocalDatasourceImpl(
+        primaryDatasource: primary,
+        fallbackDatasource: fallback,
+        enableFallback: false,
+        fallbackIntervalFrames: 1,
+      );
+      await hybrid.loadModel();
+
+      await hybrid.runInference(_fakeFrame(), rotationDegrees: 90);
+
+      expect(fallback.runCount, 0,
+          reason: 'Fallback must not run when enableFallback is false');
+    });
+
+    test('closeModel closes both datasources even when enableFallback is false',
+        () async {
+      // closeModel() is unconditional: both datasources are always closed,
+      // even if the fallback was never loaded.  This is safe because
+      // closeModel() is a no-op on an unloaded datasource.
+      final primary = _FakeDatasource();
+      final fallback = _FakeDatasource();
+
+      final hybrid = HybridDetectionLocalDatasourceImpl(
+        primaryDatasource: primary,
+        fallbackDatasource: fallback,
+        enableFallback: false, // fallback never loaded
+        fallbackIntervalFrames: 1,
+      );
+      await hybrid.loadModel();
+      await hybrid.closeModel();
+
+      expect(primary.closeCount, 1);
+      expect(fallback.closeCount, 1,
+          reason:
+              'Fallback closeModel() must be called even when enableFallback '
+              'is false, because closeModel() is defined as a no-op when '
+              'the datasource was not loaded');
+    });
+
+    test('resets frame counter on closeModel', () async {
+      final primary = _FakeDatasource(results: const []);
+      final fallback = _FakeDatasource(
+        results: const [
+          {
+            'label': 'xe',
+            'confidence': 0.8,
+            'left': 0,
+            'top': 0,
+            'width': 1,
+            'height': 1
+          },
+        ],
+      );
+
+      final hybrid = HybridDetectionLocalDatasourceImpl(
+        primaryDatasource: primary,
+        fallbackDatasource: fallback,
+        enableFallback: true,
+        fallbackIntervalFrames: 2,
+      );
+
+      await hybrid.loadModel();
+      // Frame 1 — no fallback (1 % 2 != 0)
+      await hybrid.runInference(_fakeFrame(), rotationDegrees: 0);
+      expect(fallback.runCount, 0);
+
+      await hybrid.closeModel();
+      await hybrid.loadModel(); // reset counter to 0
+
+      // Frame 1 after reload — again no fallback (counter reset)
+      await hybrid.runInference(_fakeFrame(), rotationDegrees: 0);
+      expect(fallback.runCount, 0,
+          reason:
+              'Frame counter must be reset to 0 after closeModel/loadModel');
+
+      // Frame 2 after reload — fallback fires
+      await hybrid.runInference(_fakeFrame(), rotationDegrees: 0);
       expect(fallback.runCount, 1);
     });
   });
