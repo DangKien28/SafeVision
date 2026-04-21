@@ -35,6 +35,12 @@ abstract class AppConstants {
   static const double basicModeMinRenderableBoxArea = 0.003;
   static const int basicModeMinConsecutiveFrames = 2;
   static const bool basicModeDefaultEnabled = true;
+  static const int alertStabilityFrames = 2;
+  static const int alertDangerousCooldownMs = 1200;
+  static const int lowVisibilityWarningCooldownMs = 7000;
+  static const double lowVisibilityThreshold = 0.35;
+  static const bool enableMlKitFallback = true;
+  static const int mlKitFallbackIntervalFrames = 3;
 
   // ── TTS ──────────────────────────────────────────────────────────────────────
   static const int ttsCooldownMs = 3000;

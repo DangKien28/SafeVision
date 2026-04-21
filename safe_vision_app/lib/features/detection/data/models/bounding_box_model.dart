@@ -38,6 +38,20 @@ class BoundingBoxModel {
   }
 
   /// Converts to the domain entity.
-  BoundingBox toEntity() =>
-      BoundingBox(left: left, top: top, width: width, height: height);
+  BoundingBox toEntity() {
+    final clampedLeft = left.clamp(0.0, 1.0);
+    final clampedTop = top.clamp(0.0, 1.0);
+    final clampedRight = (left + width).clamp(0.0, 1.0);
+    final clampedBottom = (top + height).clamp(0.0, 1.0);
+
+    final clampedWidth = (clampedRight - clampedLeft).clamp(0.0, 1.0);
+    final clampedHeight = (clampedBottom - clampedTop).clamp(0.0, 1.0);
+
+    return BoundingBox(
+      left: clampedLeft,
+      top: clampedTop,
+      width: clampedWidth,
+      height: clampedHeight,
+    );
+  }
 }

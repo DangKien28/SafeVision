@@ -42,6 +42,13 @@ void main() {
       expect(AppConstants.basicModeMinRenderableBoxArea, greaterThan(0));
       expect(AppConstants.basicModeMinConsecutiveFrames, greaterThan(0));
       expect(AppConstants.basicModeDefaultEnabled, isTrue);
+      expect(AppConstants.alertStabilityFrames, greaterThan(0));
+      expect(AppConstants.alertDangerousCooldownMs, greaterThan(0));
+      expect(AppConstants.lowVisibilityWarningCooldownMs, greaterThan(0));
+      expect(
+        AppConstants.lowVisibilityThreshold,
+        inInclusiveRange(0.0, 1.0),
+      );
     });
 
     test('TTS constants are set', () {

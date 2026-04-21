@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../../domain/entities/detection_object.dart';
+import '../../domain/entities/realtime_pipeline_metrics.dart';
 import '../../domain/entities/tracked_detection.dart';
 
 /// Base class for all detection pipeline states.
@@ -41,14 +42,17 @@ class DetectionSuccess extends DetectionState {
     required this.detections,
     required this.trackedDetections,
     required this.timestamp,
+    this.pipelineMetrics = const RealtimePipelineMetrics.empty(),
   });
 
   final List<DetectionObject> detections;
   final List<TrackedDetection> trackedDetections;
   final int timestamp;
+  final RealtimePipelineMetrics pipelineMetrics;
 
   @override
-  List<Object?> get props => [detections, trackedDetections, timestamp];
+  List<Object?> get props =>
+      [detections, trackedDetections, timestamp, pipelineMetrics];
 }
 
 /// A non-recoverable error occurred (e.g. model file not found).

@@ -1,9 +1,12 @@
 import 'package:get_it/get_it.dart';
 
 import 'core/config/detection_config.dart';
+import 'core/constants/app_constants.dart';
 import 'core/services/camera_service.dart';
 import 'features/detection/data/datasources/detection_local_datasource.dart';
 import 'features/detection/data/datasources/detection_local_datasource_impl.dart';
+import 'features/detection/data/datasources/hybrid_detection_local_datasource_impl.dart';
+import 'features/detection/data/datasources/mlkit_detection_local_datasource_impl.dart';
 import 'features/detection/data/repositories/detection_repository_impl.dart';
 import 'features/detection/domain/repositories/detection_repository.dart';
 import 'features/detection/domain/usecases/close_model_usecase.dart';
@@ -55,7 +58,14 @@ Future<void> initDependencies() async {
 
   // ── Detection datasource & repository ──────────────────────────────────────
   sl.registerLazySingleton<DetectionLocalDatasource>(
-    () => DetectionLocalDatasourceImpl(sl<DetectionConfig>()),
+    () => HybridDetectionLocalDatasourceImpl(
+      primaryDatasource: DetectionLocalDatasourceImpl(sl<DetectionConfig>()),
+      fallbackDatasource: MlKitDetectionLocalDatasourceImpl(
+        sl<DetectionConfig>(),
+      ),
+      enableFallback: AppConstants.enableMlKitFallback,
+      fallbackIntervalFrames: AppConstants.mlKitFallbackIntervalFrames,
+    ),
   );
 
   sl.registerLazySingleton<DetectionRepository>(
