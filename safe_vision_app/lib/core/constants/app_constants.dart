@@ -39,6 +39,8 @@ abstract class AppConstants {
   static const int alertDangerousCooldownMs = 1200;
   static const int lowVisibilityWarningCooldownMs = 7000;
   static const double lowVisibilityThreshold = 0.35;
+  static const bool enableMlKitFallback = true;
+  static const int mlKitFallbackIntervalFrames = 3;
 
   // ── TTS ──────────────────────────────────────────────────────────────────────
   static const int ttsCooldownMs = 3000;
