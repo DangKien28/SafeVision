@@ -14,7 +14,6 @@ dependencies:
   cupertino_icons: ^1.0.8
 
   # State management
-  bloc: ^9.1.1
   flutter_bloc: ^9.1.1
   equatable: ^2.0.8
   bloc_concurrency: ^0.3.0
@@ -44,7 +43,6 @@ dependencies:
 
   # Image processing — konversi format untuk inference pipeline
   image: ^4.7.2
-  google_mlkit_object_detection: ^0.15.1
 
 dev_dependencies:
   flutter_test:
@@ -70,8 +68,3 @@ flutter:
     # UI assets
     - assets/icons/sv_icon.png
     - assets/images/sv_logo.png
-
-  fonts:
-    - family: Roboto
-      fonts:
-        - asset: assets/fonts/Roboto-Regular.ttf

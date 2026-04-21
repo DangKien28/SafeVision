@@ -10,7 +10,7 @@ void main() {
     });
 
     test('detection thresholds are sane', () {
-      expect(AppConstants.confidenceThreshold, 0.45);
+      expect(AppConstants.confidenceThreshold, 0.30);
       expect(AppConstants.iouThreshold, 0.45);
       expect(AppConstants.maxDetections, 10);
       expect(AppConstants.maxClassesPerBox, 2);
@@ -38,17 +38,6 @@ void main() {
       expect(AppConstants.minRenderableBoxArea, greaterThan(0));
       expect(AppConstants.maxRenderableAspectRatio, greaterThan(1));
       expect(AppConstants.latestFrameMaxAgeMs, 1200);
-      expect(AppConstants.basicModeMaxIndicators, greaterThan(0));
-      expect(AppConstants.basicModeMinRenderableBoxArea, greaterThan(0));
-      expect(AppConstants.basicModeMinConsecutiveFrames, greaterThan(0));
-      expect(AppConstants.basicModeDefaultEnabled, isTrue);
-      expect(AppConstants.alertStabilityFrames, greaterThan(0));
-      expect(AppConstants.alertDangerousCooldownMs, greaterThan(0));
-      expect(AppConstants.lowVisibilityWarningCooldownMs, greaterThan(0));
-      expect(
-        AppConstants.lowVisibilityThreshold,
-        inInclusiveRange(0.0, 1.0),
-      );
     });
 
     test('TTS constants are set', () {

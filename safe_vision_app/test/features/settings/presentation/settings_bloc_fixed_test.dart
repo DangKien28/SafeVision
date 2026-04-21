@@ -41,16 +41,12 @@ void main() {
         .thenAnswer((_) async => AppConstants.confidenceThreshold);
     when(() => mockRepo.getVoiceEnabled()).thenAnswer((_) async => true);
     when(() => mockRepo.getShowConfidencePanel()).thenAnswer((_) async => true);
-    when(() => mockRepo.getBasicDisplayModeEnabled())
-        .thenAnswer((_) async => true);
     when(() => mockRepo.getTtsLanguage()).thenAnswer((_) async => 'vi-VN');
     when(() => mockRepo.setTtsLanguage(any())).thenAnswer((_) async {});
     when(() => mockRepo.setSpeechRate(any())).thenAnswer((_) async {});
     when(() => mockRepo.setVoiceEnabled(any())).thenAnswer((_) async {});
     when(() => mockRepo.setConfidenceThreshold(any())).thenAnswer((_) async {});
     when(() => mockRepo.setShowConfidencePanel(any())).thenAnswer((_) async {});
-    when(() => mockRepo.setBasicDisplayModeEnabled(any()))
-        .thenAnswer((_) async {});
 
     when(() => mockTtsRepo.configure(
           language: any(named: 'language'),
@@ -212,27 +208,6 @@ void main() {
         bloc.add(const SettingsVoiceToggled(true));
       },
       verify: (_) => verifyNever(() => mockTtsRepo.stop()),
-    );
-  });
-
-  group('SettingsBasicDisplayModeToggled', () {
-    blocTest<SettingsBloc, SettingsState>(
-      'toggles basic mode, persists setting, and updates state',
-      build: buildBloc,
-      act: (bloc) async {
-        bloc.add(const SettingsLoaded());
-        await Future.delayed(const Duration(milliseconds: 10));
-        bloc.add(const SettingsBasicDisplayModeToggled(false));
-      },
-      expect: () => [
-        isA<SettingsState>().having((s) => s.isLoading, 'isLoading', isTrue),
-        isA<SettingsState>().having((s) => s.basicDisplayModeEnabled,
-            'basicDisplayModeEnabled', isTrue),
-        isA<SettingsState>().having((s) => s.basicDisplayModeEnabled,
-            'basicDisplayModeEnabled', isFalse),
-      ],
-      verify: (_) =>
-          verify(() => mockRepo.setBasicDisplayModeEnabled(false)).called(1),
     );
   });
 }

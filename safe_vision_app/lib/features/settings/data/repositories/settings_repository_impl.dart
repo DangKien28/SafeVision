@@ -2,8 +2,8 @@ import '../../domain/repositories/settings_repository.dart';
 import '../datasources/local_storage_service.dart';
 
 class SettingsRepositoryImpl implements SettingsRepository {
-  SettingsRepositoryImpl(this._storage);
   final LocalStorageService _storage;
+  SettingsRepositoryImpl(this._storage);
 
   @override
   Future<double> getSpeechRate() => _storage.getSpeechRate();
@@ -23,12 +23,6 @@ class SettingsRepositoryImpl implements SettingsRepository {
   @override
   Future<void> setShowConfidencePanel(bool v) =>
       _storage.setShowConfidencePanel(v);
-  @override
-  Future<bool> getBasicDisplayModeEnabled() =>
-      _storage.getBasicDisplayModeEnabled();
-  @override
-  Future<void> setBasicDisplayModeEnabled(bool v) =>
-      _storage.setBasicDisplayModeEnabled(v);
   @override
   Future<String> getTtsLanguage() => _storage.getTtsLanguage();
   @override

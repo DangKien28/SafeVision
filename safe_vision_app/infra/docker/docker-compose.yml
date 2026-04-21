@@ -1,4 +1,4 @@
-
+version: '3.9'
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SafeVision — docker-compose for local CI simulation
@@ -8,23 +8,32 @@
 #   docker compose run test           → full test suite with coverage
 #   docker compose run test-file <path>  → run a specific test file
 #   docker compose run build-android  → build debug APK
+#
+# All services share the pub-cache volume so `flutter pub get`
+# does not need to be re-run between services.
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
 
+  # Base template — extended by other services via YAML anchor
   base: &base
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile
       target: deps
       args:
+        # Follow the stable channel; do not pin a specific version.
+        # See Dockerfile for a full explanation.
         FLUTTER_CHANNEL: stable
     volumes:
-      - ../..:/app:ro
+      - ../..:/app:ro          # Source mounted read-only
       - pub-cache:/root/.pub-cache
       - build-cache:/app/build
     working_dir: /app
 
+  # ── Analyze & Format ──────────────────────────────────────────────────────
+  # Runs dart format check then flutter analyze.
+  # Exits with a non-zero code if there are any format or lint errors.
   analyze:
     <<: *base
     command: >
@@ -36,6 +45,7 @@ services:
         echo 'Analysis complete'
       "
 
+  # ── Test with coverage ────────────────────────────────────────────────────
   test:
     <<: *base
     build:
@@ -47,7 +57,7 @@ services:
     volumes:
       - ../..:/app:ro
       - pub-cache:/root/.pub-cache
-      - coverage-out:/app/coverage
+      - coverage-out:/app/coverage  # Writable for coverage output
     command: >
       sh -c "
         echo 'Running tests with coverage...' &&
@@ -59,6 +69,8 @@ services:
         echo 'Tests complete'
       "
 
+  # ── Run a specific test file ──────────────────────────────────────────────
+  # Example: docker compose run test-file test/features/tts/tts_service_fix_test.dart
   test-file:
     <<: *base
     build:
@@ -72,6 +84,8 @@ services:
       - pub-cache:/root/.pub-cache
     entrypoint: flutter test --reporter=expanded
 
+  # ── Build Android APK ─────────────────────────────────────────────────────
+  # Output APKs can be found in the build-out volume after the build completes.
   build-android:
     <<: *base
     build:
@@ -92,6 +106,11 @@ services:
         find /app/build/app/outputs/apk -name '*.apk' -exec ls -lh {} \;
       "
 
+# ─── Volumes ──────────────────────────────────────────────────────────────────
+# pub-cache   : shared across all services — no need to re-run pub get
+# build-cache : caches intermediate build artifacts
+# build-out   : APK output from android-builder (writable)
+# coverage-out: lcov.info output from the test runner (writable)
 volumes:
   pub-cache:
     driver: local

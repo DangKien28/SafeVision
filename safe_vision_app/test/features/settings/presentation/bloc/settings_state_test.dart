@@ -11,8 +11,6 @@ void main() {
       expect(state.confidenceThreshold, AppConstants.confidenceThreshold);
       expect(state.voiceEnabled, isTrue);
       expect(state.showConfidencePanel, isTrue);
-      expect(
-          state.basicDisplayModeEnabled, AppConstants.basicModeDefaultEnabled);
       expect(state.ttsLanguage, '');
       expect(state.isLoading, isFalse);
     });
@@ -32,7 +30,6 @@ void main() {
         confidenceThreshold: 0.5,
         voiceEnabled: false,
         showConfidencePanel: false,
-        basicDisplayModeEnabled: false,
         ttsLanguage: 'en-US',
         isLoading: true,
       );
@@ -40,7 +37,6 @@ void main() {
       expect(updated.confidenceThreshold, 0.5);
       expect(updated.voiceEnabled, isFalse);
       expect(updated.showConfidencePanel, isFalse);
-      expect(updated.basicDisplayModeEnabled, isFalse);
       expect(updated.ttsLanguage, 'en-US');
       expect(updated.isLoading, isTrue);
     });
@@ -59,7 +55,7 @@ void main() {
 
     test('props contains all fields', () {
       const state = SettingsState();
-      expect(state.props.length, 7);
+      expect(state.props.length, 6);
     });
   });
 
@@ -99,12 +95,6 @@ void main() {
       const e2 = SettingsTtsLanguageChanged();
       expect(e1, equals(e2));
       expect(e1.props, isEmpty);
-    });
-
-    test('SettingsBasicDisplayModeToggled stores enabled', () {
-      const e = SettingsBasicDisplayModeToggled(false);
-      expect(e.enabled, isFalse);
-      expect(e.props, [false]);
     });
   });
 }

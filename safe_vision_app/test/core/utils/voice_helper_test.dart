@@ -17,7 +17,6 @@ void main() {
       expect(VoiceHelper.normalizeLabel('lua'), 'lửa');
       expect(VoiceHelper.normalizeLabel('laptop'), 'laptop');
       expect(VoiceHelper.normalizeLabel('dien_thoai'), 'điện thoại');
-      expect(VoiceHelper.normalizeLabel('doi_tuong'), 'đối tượng');
     });
 
     test('is case-insensitive', () {

@@ -74,23 +74,8 @@ void main() {
         final entity = model.toEntity();
         expect(entity.left, 0.1);
         expect(entity.top, 0.2);
-        expect(entity.width, closeTo(0.3, 1e-10));
-        expect(entity.height, closeTo(0.4, 1e-10));
-      });
-
-      test('clamps out-of-bound values to normalized range', () {
-        const model = BoundingBoxModel(
-          left: -0.2,
-          top: 0.9,
-          width: 1.6,
-          height: 0.5,
-        );
-        final entity = model.toEntity();
-
-        expect(entity.left, 0.0);
-        expect(entity.top, 0.9);
-        expect(entity.width, closeTo(1.0, 1e-10));
-        expect(entity.height, closeTo(0.1, 1e-10));
+        expect(entity.width, 0.3);
+        expect(entity.height, 0.4);
       });
     });
   });

@@ -1,8 +1,8 @@
 import '../repositories/tts_repository.dart';
 
 class ConfigureTtsUsecase {
-  ConfigureTtsUsecase(this._repository);
   final TtsRepository _repository;
+  ConfigureTtsUsecase(this._repository);
 
   Future<void> call({
     String? language,

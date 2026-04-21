@@ -1,28 +1,28 @@
 import 'package:equatable/equatable.dart';
 
 abstract class Failure extends Equatable {
-  const Failure(this.message);
   final String message;
+  const Failure(this.message);
   @override
   List<Object?> get props => [message];
 }
 
 class ModelFailure extends Failure {
-  const ModelFailure(super.m);
+  const ModelFailure(super.message);
 }
 
 class InferenceFailure extends Failure {
-  const InferenceFailure(super.m);
+  const InferenceFailure(super.message);
 }
 
 class CameraFailure extends Failure {
-  const CameraFailure(super.m);
+  const CameraFailure(super.message);
 }
 
 class PermissionFailure extends Failure {
-  const PermissionFailure(super.m);
+  const PermissionFailure(super.message);
 }
 
 class UnknownFailure extends Failure {
-  const UnknownFailure(super.m);
+  const UnknownFailure(super.message);
 }

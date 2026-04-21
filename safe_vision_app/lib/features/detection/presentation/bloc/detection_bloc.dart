@@ -1,23 +1,21 @@
 import 'dart:async';
 
-import 'package:bloc/bloc.dart';
 import 'package:bloc_concurrency/bloc_concurrency.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/constants/app_constants.dart';
+import '../../../../core/error/exceptions.dart';
+import '../../../../core/services/warning_dispatcher.dart';
 import '../../../../core/usecases/usecase.dart';
+import '../../../../core/utils/perf_monitor.dart';
 import '../../domain/entities/tracked_detection.dart';
-import '../../domain/services/alert_policy_engine.dart';
 import '../../domain/services/object_tracker.dart';
-import '../../domain/services/realtime_pipeline_monitor.dart';
-import '../../domain/services/vision_quality_evaluator.dart';
 import '../../domain/usecases/close_model_usecase.dart';
 import '../../domain/usecases/detection_object_from_frame.dart';
 import '../../domain/usecases/load_model_usecase.dart';
 import 'detection_event.dart';
 import 'detection_state.dart';
-
-// ── Warning callback ──────────────────────────────────────────────────────────
 
 typedef DetectionWarningCallback = void Function({
   required String text,
@@ -25,79 +23,97 @@ typedef DetectionWarningCallback = void Function({
   required bool withVibration,
 });
 
-// ── DetectionBloc ─────────────────────────────────────────────────────────────
-
 class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
-  DetectionBloc({
-    required LoadModelUsecase loadModel,
-    required CloseModelUsecase closeModel,
-    required DetectionObjectFromFrame detectFromFrame,
-    required DetectionWarningCallback onWarning,
-  })  : _loadModel = loadModel,
-        _closeModel = closeModel,
-        _detectFromFrame = detectFromFrame,
-        _onWarning = onWarning,
-        super(const DetectionInitial()) {
-    on<DetectionStarted>(_onStarted, transformer: sequential());
-    on<DetectionStopped>(_onStopped, transformer: sequential());
-    on<DetectionFrameReceived>(_onFrameReceived, transformer: droppable());
-  }
-
   final LoadModelUsecase _loadModel;
   final CloseModelUsecase _closeModel;
   final DetectionObjectFromFrame _detectFromFrame;
   final DetectionWarningCallback _onWarning;
-  Future<void> _lifecycleTail = Future<void>.value();
-  bool _modelReleased = true;
-  int _frameEpoch = 0;
+  final ObjectTracker _objectTracker;
 
-  final ObjectTracker _tracker = ObjectTracker();
-  final AlertPolicyEngine _alertPolicy = AlertPolicyEngine();
-  final RealtimePipelineMonitor _pipelineMonitor = RealtimePipelineMonitor();
+  Future<void>? _closeFuture;
+  Future<void> _lifecycleChain = Future<void>.value();
+  bool _modelReady = false;
+  bool _isShuttingDown = false;
+  int _pipelineGeneration = 0;
+  final Map<int, _WarningRecord> _warningRecords = <int, _WarningRecord>{};
 
-  bool get _stateAllowsFrames =>
-      state is DetectionModelReady || state is DetectionSuccess;
-
-  Future<void> _serializeLifecycle(Future<void> Function() operation) {
-    final previous = _lifecycleTail.catchError((_) {});
-    final next = previous.then((_) => operation());
-    _lifecycleTail = next;
-    return next;
+  DetectionBloc({
+    required LoadModelUsecase loadModel,
+    required CloseModelUsecase closeModel,
+    required DetectionObjectFromFrame detectFromFrame,
+    DetectionWarningCallback? onWarning,
+    WarningDispatcher? warningDispatcher,
+    ObjectTracker? objectTracker,
+  })  : _loadModel = loadModel,
+        _closeModel = closeModel,
+        _detectFromFrame = detectFromFrame,
+        _onWarning =
+            onWarning ?? _warningCallbackFromDispatcher(warningDispatcher),
+        _objectTracker = objectTracker ?? ObjectTracker(),
+        super(const DetectionInitial()) {
+    on<DetectionStarted>(_onStarted);
+    on<DetectionStopped>(_onStopped);
+    on<DetectionFrameReceived>(_onFrameReceived, transformer: droppable());
   }
 
-  Future<void> _releaseModelIfNeeded({bool force = false}) async {
-    if (!force && _modelReleased) return;
-
-    try {
-      await _closeModel.call(const NoParams());
-    } catch (e) {
-      debugPrint('[DetectionBloc] closeModel error (ignored): $e');
-    } finally {
-      _modelReleased = true;
+  static DetectionWarningCallback _warningCallbackFromDispatcher(
+    WarningDispatcher? warningDispatcher,
+  ) {
+    if (warningDispatcher == null) {
+      throw ArgumentError(
+        'Either onWarning or warningDispatcher must be provided.',
+      );
     }
+    return ({
+      required String text,
+      required bool immediate,
+      required bool withVibration,
+    }) {
+      warningDispatcher.dispatch(
+        text: text,
+        immediate: immediate,
+        withVibration: withVibration,
+      );
+    };
   }
-
-  // ── Event handlers ──────────────────────────────────────────────────────────
 
   Future<void> _onStarted(
     DetectionStarted event,
     Emitter<DetectionState> emit,
-  ) async {
-    await _serializeLifecycle(() async {
-      _frameEpoch++;
-      emit(const DetectionLoading());
-      _tracker.clear();
-      _alertPolicy.reset();
-      _pipelineMonitor.reset();
+  ) {
+    return _runLifecycleTask(() async {
+      _pipelineGeneration++;
+      final generation = _pipelineGeneration;
 
+      if (_closeFuture != null) {
+        try {
+          await _closeFuture;
+        } catch (e) {
+          debugPrint('[DetectionBloc] _closeFuture threw on restart: $e');
+        } finally {
+          _closeFuture = null;
+        }
+      }
+
+      _resetWarningState();
+      _objectTracker.clear();
+      _modelReady = false;
+      if (kDebugMode) debugPrint('[DetectionBloc] loading model...');
+      emit(const DetectionLoading());
       try {
-        await _releaseModelIfNeeded();
         await _loadModel.call(const NoParams());
-        _modelReleased = false;
+        if (_isShuttingDown || generation != _pipelineGeneration || isClosed) {
+          _closeFuture ??= _closeModel.call(const NoParams());
+          await _closeFuture;
+          _closeFuture = null;
+          return;
+        }
+        _modelReady = true;
+        if (kDebugMode) debugPrint('[DetectionBloc] model loaded');
         emit(const DetectionModelReady());
       } catch (e) {
-        _modelReleased = true;
-        debugPrint('[DetectionBloc] loadModel failed: $e');
+        _modelReady = false;
+        debugPrint('[DetectionBloc] model load FAILED: $e');
         emit(DetectionFailure(e.toString()));
       }
     });
@@ -106,14 +122,21 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
   Future<void> _onStopped(
     DetectionStopped event,
     Emitter<DetectionState> emit,
-  ) async {
-    await _serializeLifecycle(() async {
-      _frameEpoch++;
-      _tracker.clear();
-      _alertPolicy.reset();
-      _pipelineMonitor.reset();
-      await _releaseModelIfNeeded(force: true);
+  ) {
+    return _runLifecycleTask(() async {
+      _pipelineGeneration++;
+      _modelReady = false;
+      _resetWarningState();
+      _objectTracker.clear();
       emit(const DetectionInitial());
+      _closeFuture = _closeModel.call(const NoParams());
+      try {
+        await _closeFuture;
+      } catch (e) {
+        debugPrint('[DetectionBloc] closeModel error: $e');
+      } finally {
+        _closeFuture = null;
+      }
     });
   }
 
@@ -121,92 +144,183 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
     DetectionFrameReceived event,
     Emitter<DetectionState> emit,
   ) async {
-    final canProcessFrame = _stateAllowsFrames;
-    if (!canProcessFrame) {
+    if (!_canProcessFrames) {
+      if (kDebugMode) {
+        debugPrint(
+          '[DetectionBloc] frame skipped - model not ready (${state.runtimeType})',
+        );
+      }
       event.onDone();
       return;
     }
 
-    final frameEpoch = _frameEpoch;
+    final generation = _pipelineGeneration;
+    final sw = kDebugMode ? (Stopwatch()..start()) : null;
 
     try {
-      final frameStartedAt = DateTime.now();
-      final visibilityScore = VisionQualityEvaluator.score(event.frame);
-      final lowVisibility =
-          visibilityScore < AppConstants.lowVisibilityThreshold;
-      _pipelineMonitor.onVisibilityUpdated(
-        lowVisibility: lowVisibility,
-        visibilityScore: visibilityScore,
-      );
-
       final detections = await _detectFromFrame(
         event.frame,
         rotationDegrees: event.rotationDegrees,
       );
-      final inferenceMs =
-          DateTime.now().difference(frameStartedAt).inMicroseconds / 1000.0;
-      final nowMs = DateTime.now().millisecondsSinceEpoch;
-      _pipelineMonitor.onFrameProcessed(
-        nowMs: nowMs,
-        inferenceMs: inferenceMs,
+      if (_isShuttingDown ||
+          generation != _pipelineGeneration ||
+          !_canProcessFrames ||
+          isClosed ||
+          state is DetectionInitial ||
+          state is DetectionLoading) {
+        return;
+      }
+
+      final trackedDetections = _objectTracker.update(detections);
+
+      if (kDebugMode) {
+        sw?.stop();
+        PerfMonitor.inferenceCompleted(sw?.elapsedMilliseconds ?? 0);
+        if (detections.isNotEmpty) {
+          debugPrint(
+            '[DetectionBloc] detections=${detections.length} in ${sw?.elapsedMilliseconds}ms',
+          );
+        }
+      }
+
+      emit(
+        DetectionSuccess(
+          detections: detections,
+          trackedDetections: trackedDetections,
+          timestamp: DateTime.now().microsecondsSinceEpoch,
+        ),
       );
 
-      final canEmitResult = _stateAllowsFrames;
-      if (!canEmitResult || frameEpoch != _frameEpoch) return;
-
-      final tracked = _tracker.update(detections);
-
-      emit(DetectionSuccess(
-        detections: detections,
-        trackedDetections: tracked,
-        timestamp: nowMs,
-        pipelineMetrics: _pipelineMonitor.snapshot(nowMs),
-      ));
-
-      _handleWarnings(
-        trackedDetections: tracked,
-        lowVisibility: lowVisibility,
-        nowMs: nowMs,
-      );
+      _triggerWarningIfNeeded(trackedDetections);
+    } on InferenceException catch (e) {
+      _objectTracker.clear();
+      _resetWarningState();
+      debugPrint('[DetectionBloc] InferenceException: $e');
     } catch (e) {
-      debugPrint('[DetectionBloc] inference error (frame skipped): $e');
+      _objectTracker.clear();
+      _resetWarningState();
+      debugPrint('[DetectionBloc] _onFrameReceived error: $e');
     } finally {
       event.onDone();
     }
   }
 
-  // ── Warning policy ──────────────────────────────────────────────────────────
+  void _triggerWarningIfNeeded(List<TrackedDetection> trackedDetections) {
+    final trackIds =
+        trackedDetections.map((tracked) => tracked.trackId).toSet();
+    _warningRecords.removeWhere((trackId, _) => !trackIds.contains(trackId));
 
-  void _handleWarnings({
-    required List<TrackedDetection> trackedDetections,
-    required bool lowVisibility,
-    required int nowMs,
+    final visible = trackedDetections.where((t) => t.isVisible).toList();
+    if (visible.isEmpty) return;
+
+    final now = DateTime.now();
+    final dangerous = visible.where((t) => t.detection.isDangerous).toList();
+    if (dangerous.isNotEmpty) {
+      final top = dangerous.reduce((a, b) =>
+          a.detection.boundingBox.area > b.detection.boundingBox.area ? a : b);
+      if (!_shouldWarn(top, now, immediate: true)) return;
+      _onWarning(
+        text: top.detection.voiceWarning,
+        immediate: true,
+        withVibration: true,
+      );
+    } else {
+      final top = visible.reduce(
+          (a, b) => a.detection.confidence > b.detection.confidence ? a : b);
+      if (!_shouldWarn(top, now, immediate: false)) return;
+      _onWarning(
+        text: top.detection.voiceWarning,
+        immediate: false,
+        withVibration: false,
+      );
+    }
+  }
+
+  void _resetWarningState() {
+    _warningRecords.clear();
+  }
+
+  bool get _canProcessFrames =>
+      _modelReady || state is DetectionModelReady || state is DetectionSuccess;
+
+  Future<void> _runLifecycleTask(Future<void> Function() task) {
+    final completer = Completer<void>();
+    _lifecycleChain = _lifecycleChain.catchError((_) {}).then((_) async {
+      try {
+        await task();
+        completer.complete();
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
+
+  bool _shouldWarn(
+    TrackedDetection trackedDetection,
+    DateTime now, {
+    required bool immediate,
   }) {
-    final decision = _alertPolicy.evaluate(
-      trackedDetections: trackedDetections,
-      lowVisibility: lowVisibility,
-      nowMs: nowMs,
+    if (!immediate &&
+        trackedDetection.consecutiveVisibleFrames <
+            AppConstants.warningStableVisibleFrames) {
+      return false;
+    }
+
+    final previous = _warningRecords[trackedDetection.trackId];
+    final minGapMs = immediate
+        ? AppConstants.dangerWarningRepeatMs
+        : AppConstants.warningRepeatMs;
+
+    if (immediate && previous != null && !previous.immediate) {
+      _warningRecords[trackedDetection.trackId] = _WarningRecord(
+        sentAt: now,
+        immediate: true,
+      );
+      return true;
+    }
+
+    if (previous != null &&
+        now.difference(previous.sentAt).inMilliseconds < minGapMs) {
+      return false;
+    }
+
+    _warningRecords[trackedDetection.trackId] = _WarningRecord(
+      sentAt: now,
+      immediate: immediate,
     );
-    if (decision == null) return;
-
-    _onWarning(
-      text: decision.text,
-      immediate: decision.immediate,
-      withVibration: decision.withVibration,
-    );
-    _pipelineMonitor.onAlertSent(nowMs);
+    return true;
   }
-
-  void recordDroppedFrame(PipelineDropReason reason) {
-    _pipelineMonitor.onFrameDropped(reason);
-  }
-
-  // ── Lifecycle ───────────────────────────────────────────────────────────────
 
   @override
   Future<void> close() async {
-    _frameEpoch++;
-    await _releaseModelIfNeeded();
+    _isShuttingDown = true;
+    _pipelineGeneration++;
+    _objectTracker.clear();
+    _resetWarningState();
+    await _lifecycleChain.catchError((_) {});
+
+    if (_closeFuture != null) {
+      try {
+        await _closeFuture;
+      } catch (_) {}
+    } else if (_modelReady || state is! DetectionInitial) {
+      try {
+        await _closeModel.call(const NoParams());
+      } catch (_) {}
+    }
+
+    _modelReady = false;
     return super.close();
   }
+}
+
+class _WarningRecord {
+  const _WarningRecord({
+    required this.sentAt,
+    required this.immediate,
+  });
+
+  final DateTime sentAt;
+  final bool immediate;
 }

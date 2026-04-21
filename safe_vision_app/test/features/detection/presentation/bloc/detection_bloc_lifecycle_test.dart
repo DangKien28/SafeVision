@@ -4,7 +4,8 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
-import 'package:safe_vision_app/core/models/camera_frame.dart';
+import 'package:safe_vision_app/core/services/camera_service.dart'
+    show CameraFrame;
 import 'package:safe_vision_app/core/usecases/usecase.dart';
 import 'package:safe_vision_app/features/detection/domain/usecases/close_model_usecase.dart';
 import 'package:safe_vision_app/features/detection/domain/usecases/detection_object_from_frame.dart';

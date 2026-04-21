@@ -1,49 +1,32 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:vibration/vibration.dart';
 
-import '../../../../features/settings/domain/repositories/settings_repository.dart';
-import '../../../../features/tts/domain/entities/tts_playback_update.dart';
-import '../../../../features/tts/domain/usecases/pause_speaking_usecase.dart';
-import '../../../../features/tts/domain/usecases/speak_warning_usecase.dart';
-import '../../../../features/tts/domain/usecases/stop_speaking_usecase.dart';
+import '../../../settings/domain/repositories/settings_repository.dart';
+import '../../domain/entities/tts_playback_update.dart';
+import '../../domain/usecases/speak_warning_usecase.dart';
+import '../../domain/usecases/stop_speaking_usecase.dart';
+import '../../domain/usecases/pause_speaking_usecase.dart';
 import 'tts_event.dart';
 import 'tts_state.dart';
 
-// ── Private internal events ───────────────────────────────────────────────────
-
-class _TtsErrorReceived extends TtsEvent {
-  const _TtsErrorReceived(this.message);
-  final String message;
-  @override
-  List<Object?> get props => [message];
-}
-
-// FIX (Bug 9): New internal event to reflect that the native engine has
-// confirmed speech started.  Previously the code dispatched a public TtsSpeak
-// event on receipt of TtsPlaybackStatus.started, which caused the BLoC to
-// call speakWarning() again → the engine received a second speak() call →
-// reported started again → infinite feedback loop.
-//
-// The fix routes the "started" signal through a private event that ONLY updates
-// state to TtsSpeaking(text) without triggering another speakWarning() call.
-class _TtsPlaybackStarted extends TtsEvent {
-  const _TtsPlaybackStarted(this.text);
-  final String text;
-  @override
-  List<Object?> get props => [text];
-}
-
-class _TtsPlaybackStopped extends TtsEvent {
-  const _TtsPlaybackStopped();
-}
-
-// ── TtsBloc ───────────────────────────────────────────────────────────────────
-
+/// Manages TTS state and bridges [DetectionBloc] events to
+/// [SpeakWarningUsecase].
+///
+/// Before processing each [TtsSpeak], the BLoC checks
+/// [SettingsRepository.getVoiceEnabled] so user preferences are respected
+/// without needing to restart the BLoC.
+///
+/// Vibration ([Vibration.vibrate]) is triggered only if TTS is actually
+/// accepted after the cooldown check, not on every incoming event.
 class TtsBloc extends Bloc<TtsEvent, TtsState> {
-  static const int _kWarningVibrationDurationMs = 200;
+  final SpeakWarningUsecase _speakWarning;
+  final StopSpeakingUsecase _stopSpeaking;
+  final PauseSpeakingUsecase _pauseSpeaking;
+  final SettingsRepository _settingsRepository;
+  final bool _usePlaybackUpdates;
+  StreamSubscription<TtsPlaybackUpdate>? _playbackSubscription;
 
   TtsBloc({
     required SpeakWarningUsecase speakWarning,
@@ -55,123 +38,91 @@ class TtsBloc extends Bloc<TtsEvent, TtsState> {
         _stopSpeaking = stopSpeaking,
         _pauseSpeaking = pauseSpeaking,
         _settingsRepository = settingsRepository,
+        _usePlaybackUpdates = playbackUpdates != null,
         super(const TtsInitial()) {
     on<TtsSpeak>(_onSpeak);
     on<TtsStop>(_onStop);
     on<TtsPause>(_onPause);
-    on<_TtsErrorReceived>(_onErrorReceived);
-    // FIX (Bug 9): register handler for the new playback-started internal event.
-    on<_TtsPlaybackStarted>(_onPlaybackStarted);
-    on<_TtsPlaybackStopped>(_onPlaybackStopped);
+    on<TtsPlaybackReported>(_onPlaybackReported);
 
-    if (playbackUpdates != null) {
-      _playbackSub = playbackUpdates.listen(_onPlaybackUpdate);
-    }
+    _playbackSubscription = playbackUpdates?.listen(
+      (update) => add(TtsPlaybackReported(update)),
+    );
   }
 
-  final SpeakWarningUsecase _speakWarning;
-  final StopSpeakingUsecase _stopSpeaking;
-  final PauseSpeakingUsecase _pauseSpeaking;
-  final SettingsRepository _settingsRepository;
-
-  StreamSubscription<TtsPlaybackUpdate>? _playbackSub;
-
-  // ── Event handlers ─────────────────────────────────────────────────────────
-
   Future<void> _onSpeak(TtsSpeak event, Emitter<TtsState> emit) async {
-    final voiceEnabled = await _settingsRepository.getVoiceEnabled();
-
-    if (!voiceEnabled) {
-      await _stopSpeaking();
-      if (state is! TtsStopped) emit(const TtsStopped());
-      return;
-    }
-
     try {
-      final accepted = event.immediate
-          ? await _speakWarning.immediate(event.text)
-          : await _speakWarning(event.text);
-
-      if (!accepted) {
-        debugPrint('[TtsBloc] speak rejected by engine');
+      final voiceEnabled = await _settingsRepository.getVoiceEnabled();
+      if (!voiceEnabled) {
+        // Stop any active audio regardless of current BLoC state.
+        // The engine may be speaking even if state is not TtsSpeaking
+        // (e.g. after an error recovery).
+        await _stopSpeaking();
         if (state is! TtsStopped) emit(const TtsStopped());
         return;
       }
 
+      final bool accepted = event.immediate
+          ? await _speakWarning.immediate(event.text)
+          : await _speakWarning(event.text);
+
+      // Cooldown or queue dedupe can reject a request even when the pipeline is
+      // healthy. In that case we keep the current state instead of claiming the
+      // engine is speaking a sentence that was never accepted.
+      if (!accepted) return;
+
       if (event.withVibration) {
-        await _triggerVibration();
+        final bool hasVibrator = await Vibration.hasVibrator();
+        if (hasVibrator == true) {
+          Vibration.vibrate(pattern: [0, 300, 150, 300]);
+        }
       }
 
-      emit(TtsSpeaking(event.text));
+      if (!_usePlaybackUpdates) {
+        emit(TtsSpeaking(event.text));
+      }
     } catch (e) {
-      debugPrint('[TtsBloc] speak error: $e');
       emit(TtsError(e.toString()));
     }
   }
 
-  Future<void> _triggerVibration() async {
-    try {
-      if (await Vibration.hasVibrator()) {
-        await Vibration.vibrate(duration: _kWarningVibrationDurationMs);
-      }
-    } catch (e) {
-      debugPrint('[TtsBloc] vibration error (ignored): $e');
-    }
-  }
-
   Future<void> _onStop(TtsStop event, Emitter<TtsState> emit) async {
-    try {
-      await _stopSpeaking();
-    } catch (e) {
-      debugPrint('[TtsBloc] stop error (ignored): $e');
+    await _stopSpeaking();
+    if (!_usePlaybackUpdates) {
+      emit(const TtsStopped());
     }
-    emit(const TtsStopped());
   }
 
   Future<void> _onPause(TtsPause event, Emitter<TtsState> emit) async {
-    try {
-      await _pauseSpeaking();
-    } catch (e) {
-      debugPrint('[TtsBloc] pause error (ignored): $e');
+    await _pauseSpeaking();
+    if (!_usePlaybackUpdates) {
+      emit(const TtsPaused());
     }
-    emit(const TtsPaused());
   }
 
-  void _onErrorReceived(_TtsErrorReceived event, Emitter<TtsState> emit) {
-    emit(TtsError(event.message));
-  }
-
-  void _onPlaybackStarted(_TtsPlaybackStarted event, Emitter<TtsState> emit) {
-    emit(TtsSpeaking(event.text));
-  }
-
-  void _onPlaybackStopped(_TtsPlaybackStopped event, Emitter<TtsState> emit) {
-    emit(const TtsStopped());
-  }
-
-  // ── Playback stream ────────────────────────────────────────────────────────
-
-  void _onPlaybackUpdate(TtsPlaybackUpdate update) {
-    switch (update.status) {
+  void _onPlaybackReported(
+    TtsPlaybackReported event,
+    Emitter<TtsState> emit,
+  ) {
+    switch (event.update.status) {
       case TtsPlaybackStatus.started:
-        if (update.text != null && !isClosed) {
-          add(_TtsPlaybackStarted(update.text!));
-        }
+        emit(TtsSpeaking(event.update.text));
         break;
       case TtsPlaybackStatus.stopped:
-        if (!isClosed) add(const _TtsPlaybackStopped());
+        emit(const TtsStopped());
+        break;
+      case TtsPlaybackStatus.paused:
+        emit(const TtsPaused());
         break;
       case TtsPlaybackStatus.error:
-        if (!isClosed) {
-          add(_TtsErrorReceived(update.error ?? 'playback error'));
-        }
+        emit(TtsError(event.update.message ?? 'TTS playback error'));
         break;
     }
   }
 
   @override
   Future<void> close() async {
-    await _playbackSub?.cancel();
+    await _playbackSubscription?.cancel();
     return super.close();
   }
 }

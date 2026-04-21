@@ -1,7 +1,11 @@
 import '../../domain/entities/detection_object.dart';
 
-/// Data-layer DTO for a bounding box received from the TFLite isolate.
 class BoundingBoxModel {
+  final double left;
+  final double top;
+  final double width;
+  final double height;
+
   const BoundingBoxModel({
     required this.left,
     required this.top,
@@ -9,21 +13,15 @@ class BoundingBoxModel {
     required this.height,
   });
 
-  final double left;
-  final double top;
-  final double width;
-  final double height;
+  factory BoundingBoxModel.fromMap(Map<String, dynamic> map) {
+    return BoundingBoxModel(
+      left: (map['left'] as num).toDouble(),
+      top: (map['top'] as num).toDouble(),
+      width: (map['width'] as num).toDouble(),
+      height: (map['height'] as num).toDouble(),
+    );
+  }
 
-  /// Parses a [Map] produced by the inference isolate.
-  factory BoundingBoxModel.fromMap(Map<String, dynamic> map) =>
-      BoundingBoxModel(
-        left: (map['left'] as num).toDouble(),
-        top: (map['top'] as num).toDouble(),
-        width: (map['width'] as num).toDouble(),
-        height: (map['height'] as num).toDouble(),
-      );
-
-  /// Parses the [top, left, bottom, right] format used by some TFLite models.
   factory BoundingBoxModel.fromTFLiteList(List<dynamic> list) {
     final top = (list[0] as num).toDouble();
     final left = (list[1] as num).toDouble();
@@ -37,21 +35,10 @@ class BoundingBoxModel {
     );
   }
 
-  /// Converts to the domain entity.
-  BoundingBox toEntity() {
-    final clampedLeft = left.clamp(0.0, 1.0);
-    final clampedTop = top.clamp(0.0, 1.0);
-    final clampedRight = (left + width).clamp(0.0, 1.0);
-    final clampedBottom = (top + height).clamp(0.0, 1.0);
-
-    final clampedWidth = (clampedRight - clampedLeft).clamp(0.0, 1.0);
-    final clampedHeight = (clampedBottom - clampedTop).clamp(0.0, 1.0);
-
-    return BoundingBox(
-      left: clampedLeft,
-      top: clampedTop,
-      width: clampedWidth,
-      height: clampedHeight,
-    );
-  }
+  BoundingBox toEntity() => BoundingBox(
+        left: left,
+        top: top,
+        width: width,
+        height: height,
+      );
 }

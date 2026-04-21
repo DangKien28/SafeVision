@@ -4,11 +4,12 @@ abstract class TtsRepository {
   Future<bool> speakImmediate(String text);
   Future<void> stop();
   Future<void> pause();
-  bool get isSpeaking;
+
   Future<void> configure({
     String? language,
     double? speechRate,
     double? pitch,
     double? volume,
   });
+  bool get isSpeaking;
 }

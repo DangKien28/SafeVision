@@ -1,3 +1,5 @@
+// lib/features/settings/presentation/bloc/settings_event.dart
+
 import 'package:equatable/equatable.dart';
 
 abstract class SettingsEvent extends Equatable {
@@ -11,43 +13,40 @@ class SettingsLoaded extends SettingsEvent {
 }
 
 class SettingsSpeechRateChanged extends SettingsEvent {
-  const SettingsSpeechRateChanged(this.rate);
   final double rate;
+  const SettingsSpeechRateChanged(this.rate);
   @override
   List<Object?> get props => [rate];
 }
 
 class SettingsConfidenceChanged extends SettingsEvent {
-  const SettingsConfidenceChanged(this.threshold);
   final double threshold;
+  const SettingsConfidenceChanged(this.threshold);
   @override
   List<Object?> get props => [threshold];
 }
 
 class SettingsVoiceToggled extends SettingsEvent {
-  const SettingsVoiceToggled(this.enabled);
   final bool enabled;
+  const SettingsVoiceToggled(this.enabled);
   @override
   List<Object?> get props => [enabled];
 }
 
 class SettingsConfidencePanelToggled extends SettingsEvent {
-  const SettingsConfidencePanelToggled(this.show);
   final bool show;
+  const SettingsConfidencePanelToggled(this.show);
   @override
   List<Object?> get props => [show];
 }
 
-class SettingsBasicDisplayModeToggled extends SettingsEvent {
-  const SettingsBasicDisplayModeToggled(this.enabled);
-  final bool enabled;
-  @override
-  List<Object?> get props => [enabled];
-}
-
-/// Fired when the user requests a TTS language cycle.  SafeVision always
-/// stays on Vietnamese (`vi-VN`); the event simply re-applies the current
-/// state's speechRate so the engine doesn't revert to its default.
+/// Language is locked to [AppConstants.ttsLanguage] (vi-VN) for this release.
+/// This event exists to let the UI trigger a TTS engine reconfiguration
+/// (e.g. after an app lifecycle resume) without carrying a language parameter
+/// that would be silently ignored.
 class SettingsTtsLanguageChanged extends SettingsEvent {
   const SettingsTtsLanguageChanged();
+
+  @override
+  List<Object?> get props => [];
 }
