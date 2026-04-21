@@ -41,9 +41,9 @@ class MlKitDetectionLocalDatasourceImpl implements DetectionLocalDatasource {
     try {
       final input = _toInputImage(frame, rotationDegrees);
       final detected = await _detector!.processImage(input).timeout(
-        const Duration(milliseconds: AppConstants.inferenceTimeoutMs),
-        onTimeout: () => <DetectedObject>[],
-      );
+            const Duration(milliseconds: AppConstants.inferenceTimeoutMs),
+            onTimeout: () => <DetectedObject>[],
+          );
       return _mapDetectedObjects(detected, frame.width, frame.height);
     } catch (e) {
       debugPrint('[MlKitDatasource] runInference error: $e');

@@ -20,11 +20,12 @@ void main() {
     List<int>? rowStrides,
   }) =>
       CameraFrame(
-        planes: (planes ?? const <List<int>>[
-                <int>[1, 2, 3, 4],
-                <int>[5, 6],
-                <int>[7, 8],
-              ])
+        planes: (planes ??
+                const <List<int>>[
+                  <int>[1, 2, 3, 4],
+                  <int>[5, 6],
+                  <int>[7, 8],
+                ])
             .map(Uint8List.fromList)
             .toList(growable: false),
         rowStrides: rowStrides ?? const <int>[4, 2, 2],
@@ -72,7 +73,8 @@ void main() {
 
       final id1 = (startCalls[0].arguments as Map<dynamic, dynamic>)['id'];
       final id2 = (startCalls[1].arguments as Map<dynamic, dynamic>)['id'];
-      final closedId = (closeCalls.single.arguments as Map<dynamic, dynamic>)['id'];
+      final closedId =
+          (closeCalls.single.arguments as Map<dynamic, dynamic>)['id'];
       expect(id1, id2);
       expect(closedId, id1);
     });
@@ -107,8 +109,7 @@ void main() {
 
       expect(capturedImageData, isNotNull);
       final bytes = capturedImageData!['bytes'] as Uint8List;
-      final metadata =
-          capturedImageData!['metadata'] as Map<dynamic, dynamic>;
+      final metadata = capturedImageData!['metadata'] as Map<dynamic, dynamic>;
       expect(bytes, orderedEquals(<int>[10, 11, 12, 13, 14, 15]));
       expect(metadata['rotation'], 270);
       expect(metadata['width'], 3.0);
