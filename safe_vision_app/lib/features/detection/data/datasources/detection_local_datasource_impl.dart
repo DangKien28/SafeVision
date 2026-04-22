@@ -60,15 +60,36 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
       await _spawnIsolate(_cachedModelBytes!);
       _modelLoaded = true;
 
-      if (kDebugMode) {
-        debugPrint('[DS] model ready: delegate=$_delegateName '
-            'accelerated=$_isolateUsesAcceleration '
-            'output=$_outputShape '
-            'labels=${_labels.length}');
-      }
+      // FIX-DIAG-1: Cetak laporan delegate yang detail agar developer bisa
+      // langsung tahu GPU/CPU mana yang sedang aktif tanpa harus debug lebih lanjut.
+      _printDelegateReport();
     } catch (error, stackTrace) {
       debugPrint('[DS] loadModel failed: $error\n$stackTrace');
       throw ModelNotFoundException('Cannot load model: $error');
+    }
+  }
+
+  /// Mencetak laporan singkat tentang delegate aktif, output shape, dan label.
+  /// Ditampilkan di debug console setiap kali model di-load.
+  void _printDelegateReport() {
+    if (!kDebugMode) return;
+    final bar = '═' * 50;
+    debugPrint('[DS] $bar');
+    debugPrint('[DS] DELEGATE REPORT');
+    debugPrint('[DS]   delegate      : $_delegateName');
+    debugPrint('[DS]   accelerated   : $_isolateUsesAcceleration');
+    debugPrint('[DS]   output shape  : $_outputShape');
+    debugPrint('[DS]   labels count  : ${_labels.length}');
+    debugPrint('[DS]   confidence    : ${_config.confidenceThreshold}');
+    debugPrint('[DS]   input size    : ${AppConstants.inputSize}×${AppConstants.inputSize}');
+    debugPrint('[DS] $bar');
+    if (!_isolateUsesAcceleration) {
+      debugPrint(
+        '[DS] ⚠ PERINGATAN: Berjalan di CPU — perkiraan 4-6fps. '
+        'Pastikan GPU/NNAPI tersedia di perangkat.',
+      );
+    } else {
+      debugPrint('[DS] ✓ Hardware acceleration aktif ($_delegateName).');
     }
   }
 
@@ -143,8 +164,10 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
     try {
       await _spawnIsolate(modelBytes);
       if (kDebugMode) {
-        debugPrint('[DS] isolate respawned: delegate=$_delegateName');
+        debugPrint('[DS] isolate respawned: delegate=$_delegateName '
+            'accelerated=$_isolateUsesAcceleration');
       }
+      _printDelegateReport();
     } catch (error, stackTrace) {
       _modelLoaded = false;
       debugPrint('[DS] isolate respawn failed: $error\n$stackTrace');
@@ -160,7 +183,7 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
 
     if (kDebugMode) {
       debugPrint('[DS] inference failure #$_consecutiveFailures '
-          '(delegate=$_delegateName): $reason');
+          '(delegate=$_delegateName, limit=$failureLimit): $reason');
     }
 
     if (_consecutiveFailures < failureLimit) {
@@ -187,7 +210,6 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
       throw const InferenceException('Inference engine is unavailable');
     }
 
-    // BACKPRESSURE STRATEGY applied here - single thread lock
     if (_isolateBusy) return const [];
 
     _isolateBusy = true;
@@ -259,6 +281,8 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
     await _shutdownIsolate();
   }
 }
+
+// ─── Isolate globals ─────────────────────────────────────────────────────────
 
 InterpreterRuntime? _runtime;
 List<String> _runtimeLabels = const [];
@@ -355,7 +379,6 @@ void _handleInference(_InferenceJob job) {
         transferable.materialize().asUint8List(),
     ];
 
-    // Reuse tensor memory structure continuously
     final letterbox = ImageConverter.yuvToLetterboxedFloat32(
       planes: planes,
       rowStrides: job.planeRowStrides,
@@ -376,8 +399,6 @@ void _handleInference(_InferenceJob job) {
 
     _ensureOutputBuffer();
 
-    // Use raw tensor bytes so tflite_flutter does not infer a rank-1 shape from
-    // Float32List and resize the model input to `[N]` before allocation.
     runtime.interpreter.runForMultipleInputs(
       [letterbox.inputBuffer],
       <int, Object>{0: _cachedOutputBuffer!},
@@ -435,7 +456,6 @@ List<Map<String, dynamic>> _parseDetections({
   required double iouThreshold,
   required int maxDetections,
 }) {
-  // FIX: Passing missing 'flat' scope
   final layout = _resolveOutputLayout(flat, outputShape, labels.length);
   if (layout.availableClasses <= 0) return const [];
 
@@ -651,6 +671,8 @@ int _validateInputShape(Interpreter interpreter, int expectedInputSize) {
   return expectedBytes;
 }
 
+// ─── Delegate creation ───────────────────────────────────────────────────────
+
 InterpreterRuntime _createInterpreterRuntime(
   Uint8List modelBytes, {
   required bool allowAcceleration,
@@ -680,39 +702,74 @@ InterpreterRuntime _createInterpreterRuntime(
   );
 }
 
+/// FIX-GPU-1: Thêm 2 lần thử GPU thay vì 1 lần.
+///
+/// Nhiều thiết bị Android fail lần đầu khởi động GPU delegate vì:
+///   • Driver chưa warm up (đặc biệt sau cold start app).
+///   • Một số GPU yêu cầu `isPrecisionLossAllowed: false` (ngược với thường thấy).
+///
+/// Lần thử 1: isPrecisionLossAllowed=true  (nhanh hơn, phổ biến hơn)
+/// Lần thử 2: isPrecisionLossAllowed=false (chính xác hơn, một số GPU bắt buộc)
+///
+/// Nếu cả hai đều fail → trả về null để pipeline thử NNAPI → XNNPack → CPU.
 InterpreterRuntime? _tryCreateGpuRuntime(Uint8List modelBytes) {
-  GpuDelegateOptionsV2? delegateOptions;
-  GpuDelegateV2? delegate;
-
-  try {
-    delegateOptions = GpuDelegateOptionsV2(isPrecisionLossAllowed: true);
-    delegate = GpuDelegateV2(options: delegateOptions);
-    final options = InterpreterOptions()..addDelegate(delegate);
-    final interpreter = Interpreter.fromBuffer(modelBytes, options: options);
-
-    return InterpreterRuntime(
-      interpreter: interpreter,
-      delegateName: 'GPU',
-      isAccelerated: true,
-      delegate: delegate,
-      disposeExtras: delegateOptions.delete,
-    );
-  } catch (error) {
-    debugPrint('[Isolate] GPU delegate unavailable: $error');
+  // Lần thử 1: precision loss allowed (phổ biến hơn, nhanh hơn)
+  {
+    GpuDelegateOptionsV2? opts;
+    GpuDelegateV2? delegate;
     try {
-      delegate?.delete();
-    } catch (_) {}
-    try {
-      delegateOptions?.delete();
-    } catch (_) {}
-    return null;
+      opts = GpuDelegateOptionsV2(isPrecisionLossAllowed: true);
+      delegate = GpuDelegateV2(options: opts);
+      final interpreterOpts = InterpreterOptions()..addDelegate(delegate);
+      final interpreter = Interpreter.fromBuffer(modelBytes, options: interpreterOpts);
+      debugPrint('[Isolate] GPU delegate OK (precision-loss=true)');
+      return InterpreterRuntime(
+        interpreter: interpreter,
+        delegateName: 'GPU',
+        isAccelerated: true,
+        delegate: delegate,
+        disposeExtras: opts.delete,
+      );
+    } catch (e) {
+      debugPrint('[Isolate] GPU attempt 1 failed (precision-loss=true): $e');
+      try { delegate?.delete(); } catch (_) {}
+      try { opts?.delete(); } catch (_) {}
+    }
   }
+
+  // Lần thử 2: strict precision (một số GPU Adreno/Mali cần thế này)
+  {
+    GpuDelegateOptionsV2? opts;
+    GpuDelegateV2? delegate;
+    try {
+      opts = GpuDelegateOptionsV2(isPrecisionLossAllowed: false);
+      delegate = GpuDelegateV2(options: opts);
+      final interpreterOpts = InterpreterOptions()..addDelegate(delegate);
+      final interpreter = Interpreter.fromBuffer(modelBytes, options: interpreterOpts);
+      debugPrint('[Isolate] GPU delegate OK (precision-loss=false)');
+      return InterpreterRuntime(
+        interpreter: interpreter,
+        delegateName: 'GPU-strict',
+        isAccelerated: true,
+        delegate: delegate,
+        disposeExtras: opts.delete,
+      );
+    } catch (e) {
+      debugPrint('[Isolate] GPU attempt 2 failed (precision-loss=false): $e');
+      try { delegate?.delete(); } catch (_) {}
+      try { opts?.delete(); } catch (_) {}
+    }
+  }
+
+  debugPrint('[Isolate] GPU delegate unavailable trên thiết bị này → thử NNAPI');
+  return null;
 }
 
 InterpreterRuntime? _tryCreateNnApiRuntime(Uint8List modelBytes) {
   try {
     final options = InterpreterOptions()..useNnApiForAndroid = true;
     final interpreter = Interpreter.fromBuffer(modelBytes, options: options);
+    debugPrint('[Isolate] NNAPI delegate OK');
     return InterpreterRuntime(
       interpreter: interpreter,
       delegateName: 'NNAPI',
@@ -728,6 +785,7 @@ InterpreterRuntime? _tryCreateMetalRuntime(Uint8List modelBytes) {
   try {
     final options = InterpreterOptions()..useMetalDelegateForIOS = true;
     final interpreter = Interpreter.fromBuffer(modelBytes, options: options);
+    debugPrint('[Isolate] Metal delegate OK');
     return InterpreterRuntime(
       interpreter: interpreter,
       delegateName: 'Metal',
@@ -749,7 +807,7 @@ InterpreterRuntime? _tryCreateXnnpackRuntime(Uint8List modelBytes) {
     delegate = XNNPackDelegate(options: delegateOptions);
     final options = InterpreterOptions()..addDelegate(delegate);
     final interpreter = Interpreter.fromBuffer(modelBytes, options: options);
-
+    debugPrint('[Isolate] XNNPack delegate OK (threads=${AppConstants.inferenceThreads})');
     return InterpreterRuntime(
       interpreter: interpreter,
       delegateName: 'XNNPack',
@@ -759,12 +817,8 @@ InterpreterRuntime? _tryCreateXnnpackRuntime(Uint8List modelBytes) {
     );
   } catch (error) {
     debugPrint('[Isolate] XNNPack unavailable: $error');
-    try {
-      delegate?.delete();
-    } catch (_) {}
-    try {
-      delegateOptions?.delete();
-    } catch (_) {}
+    try { delegate?.delete(); } catch (_) {}
+    try { delegateOptions?.delete(); } catch (_) {}
     return null;
   }
 }
@@ -785,6 +839,8 @@ void _closeRuntime() {
   _cachedOutputFloats = null;
   _cachedOutputLength = 0;
 }
+
+// ─── Data classes ─────────────────────────────────────────────────────────────
 
 class InterpreterRuntime {
   InterpreterRuntime({

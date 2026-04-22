@@ -12,7 +12,22 @@ import '../utils/perf_monitor.dart';
 export '../models/camera_frame.dart';
 
 class CameraService {
-  static const ResolutionPreset _streamResolutionPreset = ResolutionPreset.low;
+  // FIX-CAM-1: Đổi từ ResolutionPreset.low → ResolutionPreset.medium.
+  //
+  // ResolutionPreset.low (~240×320) áp dụng cho CẢ preview lẫn image stream
+  // vì cùng dùng một CameraController. Kết quả: preview mờ, không dùng được.
+  //
+  // ResolutionPreset.medium (~480×640) giúp:
+  //   • Preview sắc nét hơn đáng kể trên màn hình.
+  //   • Frame đưa vào inference vẫn được letterbox về 320×320 bởi
+  //     ImageConverter.yuvToLetterboxedFloat32, nên accuracy không đổi.
+  //   • YUV→Float32 xử lý nhiều pixel hơn một chút trong isolate nhưng
+  //     đổi lại chất lượng input tốt hơn cho model (ít artifact hơn).
+  //
+  // Nếu thiết bị yếu và FPS drop đáng kể, có thể rollback về low.
+  static const ResolutionPreset _streamResolutionPreset =
+      ResolutionPreset.medium;
+
   CameraController? _controller;
   List<CameraDescription> _cameras = const [];
   int _currentIndex = 0;
@@ -186,7 +201,7 @@ class CameraService {
       debugPrint('[CameraService] startImageStream error: $error');
     }));
 
-    debugPrint('[CameraService] stream started (adaptive backpressure mode)');
+    debugPrint('[CameraService] stream started (preset=$_streamResolutionPreset, adaptive backpressure mode)');
   }
 
   void _dispatchFrame(CameraFrame frame, int generation) {
@@ -317,9 +332,6 @@ class CameraService {
 extension CameraImageFrameMapper on CameraImage {
   CameraFrame toCameraFrame() {
     return CameraFrame(
-      // Package planes into TransferableTypedData while the camera callback is
-      // still active. This preserves buffer lifetime correctness and removes an
-      // extra UI-isolate copy that used to happen later in runInference().
       planes: const [],
       transferablePlanes: planes
           .map((plane) => TransferableTypedData.fromList([plane.bytes]))
