@@ -2,7 +2,6 @@ import 'package:equatable/equatable.dart';
 
 abstract class TtsState extends Equatable {
   const TtsState();
-
   @override
   List<Object?> get props => [];
 }
@@ -12,10 +11,8 @@ class TtsInitial extends TtsState {
 }
 
 class TtsSpeaking extends TtsState {
-  const TtsSpeaking(this.text);
-
   final String text;
-
+  const TtsSpeaking(this.text);
   @override
   List<Object?> get props => [text];
 }
@@ -29,10 +26,8 @@ class TtsPaused extends TtsState {
 }
 
 class TtsError extends TtsState {
-  const TtsError(this.message);
-
   final String message;
-
+  const TtsError(this.message);
   @override
   List<Object?> get props => [message];
 }

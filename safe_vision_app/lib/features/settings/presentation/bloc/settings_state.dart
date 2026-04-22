@@ -1,8 +1,15 @@
 import 'package:equatable/equatable.dart';
-
 import '../../../../core/constants/app_constants.dart';
 
 class SettingsState extends Equatable {
+  final double speechRate;
+  final double confidenceThreshold;
+  final bool voiceEnabled;
+  final bool showConfidencePanel;
+  final bool basicDisplayModeEnabled;
+  final String ttsLanguage;
+  final bool isLoading;
+
   const SettingsState({
     this.speechRate = AppConstants.ttsSpeechRate,
     this.confidenceThreshold = AppConstants.confidenceThreshold,
@@ -12,14 +19,6 @@ class SettingsState extends Equatable {
     this.ttsLanguage = '',
     this.isLoading = false,
   });
-
-  final double speechRate;
-  final double confidenceThreshold;
-  final bool voiceEnabled;
-  final bool showConfidencePanel;
-  final bool basicDisplayModeEnabled;
-  final String ttsLanguage;
-  final bool isLoading;
 
   SettingsState copyWith({
     double? speechRate,

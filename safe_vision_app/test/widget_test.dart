@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:safe_vision_app/features/detection/domain/entities/detection_object.dart';
-import 'package:safe_vision_app/features/detection/presentation/widgets/detection_control_bar.dart';
 import 'package:safe_vision_app/features/detection/presentation/widgets/confidence_score_display.dart';
-import 'package:safe_vision_app/features/detection/presentation/widgets/object_indicator_painter.dart';
+import 'package:safe_vision_app/features/detection/presentation/widgets/bounding_box_painter.dart';
 
 void main() {
   // ConfidenceScoreDisplay
@@ -22,7 +21,7 @@ void main() {
     }
 
     DetectionObject makeDetection({
-      String label = 'nguoi_di_bo',
+      String label = 'person',
       double confidence = 0.85,
       double left = 0.1,
       double top = 0.1,
@@ -45,34 +44,34 @@ void main() {
       await tester.pumpWidget(buildWidget([]));
 
       expect(find.byType(SizedBox), findsWidgets);
-      expect(find.text('nguoi_di_bo'), findsNothing);
+      expect(find.text('person'), findsNothing);
     });
 
     testWidgets('displays label when a single object is detected',
         (tester) async {
-      await tester.pumpWidget(buildWidget([makeDetection(label: 'xe')]));
+      await tester.pumpWidget(buildWidget([makeDetection(label: 'bicycle')]));
 
-      expect(find.textContaining('xe'), findsOneWidget);
+      expect(find.textContaining('bicycle'), findsOneWidget);
     });
 
     testWidgets('displays full labels for multiple detected objects',
         (tester) async {
       final detections = [
-        makeDetection(label: 'nguoi_di_bo', confidence: 0.9),
-        makeDetection(label: 'xe', confidence: 0.8),
-        makeDetection(label: 'balo', confidence: 0.7),
+        makeDetection(label: 'person', confidence: 0.9),
+        makeDetection(label: 'bicycle', confidence: 0.8),
+        makeDetection(label: 'car', confidence: 0.7),
       ];
       await tester.pumpWidget(buildWidget(detections));
 
-      expect(find.textContaining('nguoi_di_bo'), findsOneWidget);
-      expect(find.textContaining('xe'), findsOneWidget);
-      expect(find.textContaining('balo'), findsOneWidget);
+      expect(find.textContaining('person'), findsOneWidget);
+      expect(find.textContaining('bicycle'), findsOneWidget);
+      expect(find.textContaining('car'), findsOneWidget);
     });
 
     testWidgets('displays the count of detected objects', (tester) async {
       await tester.pumpWidget(buildWidget([
-        makeDetection(label: 'nguoi_di_bo'),
-        makeDetection(label: 'balo'),
+        makeDetection(label: 'person'),
+        makeDetection(label: 'car'),
       ]));
 
       expect(find.textContaining('2'), findsWidgets);
@@ -80,7 +79,7 @@ void main() {
 
     testWidgets('displays confidence percentage', (tester) async {
       await tester.pumpWidget(buildWidget([
-        makeDetection(label: 'nguoi_di_bo', confidence: 0.85),
+        makeDetection(label: 'person', confidence: 0.85),
       ]));
 
       expect(find.textContaining('85'), findsWidgets);
@@ -90,7 +89,7 @@ void main() {
       const testMaxItems = 5;
       final detections = List.generate(
         10,
-        (i) => makeDetection(label: 'cay', confidence: 0.5 + i * 0.01),
+        (i) => makeDetection(label: 'obj$i', confidence: 0.5 + i * 0.01),
       );
 
       await tester.pumpWidget(buildWidget(detections, maxItems: testMaxItems));
@@ -100,115 +99,23 @@ void main() {
 
     testWidgets('long label does not cause overflow', (tester) async {
       await tester.pumpWidget(buildWidget([
-        makeDetection(
-            label: 'cau_thang_rat_dai_va_to_lon_de_kiem_tra_overflow'),
+        makeDetection(label: 'very_long_label_that_might_overflow_the_box'),
       ]));
 
       expect(tester.takeException(), isNull);
     });
   });
 
-  group('DetectionControlBar', () {
-    testWidgets('lays out without exceptions in constrained layout',
-        (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: Center(
-              child: SizedBox(
-                width: 280,
-                height: 140,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Align(
-                      alignment: Alignment.bottomCenter,
-                      child: DetectionControlBar(
-                        onStop: () {},
-                        onSettings: () {},
-                        onSwitchCamera: () {},
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
+  // BoundingBoxPainter
 
-      expect(find.text('Dừng'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    });
-
-    testWidgets('keeps accessible stop button height', (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: Center(
-              child: SizedBox(
-                width: 280,
-                height: 140,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Align(
-                      alignment: Alignment.bottomCenter,
-                      child: DetectionControlBar(
-                        onStop: () {},
-                        onSettings: () {},
-                        onSwitchCamera: () {},
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-
-      final stopButton = find.widgetWithText(ElevatedButton, 'Dừng');
-      expect(stopButton, findsOneWidget);
-      expect(tester.getSize(stopButton).height, greaterThanOrEqualTo(56));
-    });
-
-    testWidgets('renders on full-width layout without overflow', (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: Stack(
-              fit: StackFit.expand,
-              children: [
-                Align(
-                  alignment: Alignment.bottomCenter,
-                  child: DetectionControlBar(
-                    onStop: () {},
-                    onSettings: () {},
-                    onSwitchCamera: () {},
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-
-      expect(find.text('Dừng'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    });
-  });
-
-  // ObjectIndicatorPainter
-
-  group('ObjectIndicatorPainter', () {
+  group('BoundingBoxPainter', () {
     testWidgets('paints without error when box list is empty', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
             body: SizedBox.expand(
               child: CustomPaint(
-                painter: ObjectIndicatorPainter(
+                painter: BoundingBoxPainter(
                   boxes: [],
                   mirrorHorizontal: false,
                 ),
@@ -228,7 +135,7 @@ void main() {
           top: 0.2,
           width: 0.4,
           height: 0.5,
-          label: 'nguoi_di_bo',
+          label: 'person',
           trackId: 1,
           missedFrames: 0,
         ),
@@ -239,7 +146,7 @@ void main() {
           home: Scaffold(
             body: SizedBox.expand(
               child: CustomPaint(
-                painter: ObjectIndicatorPainter(
+                painter: BoundingBoxPainter(
                   boxes: smoothed,
                   mirrorHorizontal: false,
                 ),
@@ -259,7 +166,7 @@ void main() {
           top: 0.1,
           width: 0.3,
           height: 0.4,
-          label: 'nguoi_di_bo',
+          label: 'person',
           trackId: 1,
           missedFrames: 0,
         ),
@@ -270,7 +177,7 @@ void main() {
           home: Scaffold(
             body: SizedBox.expand(
               child: CustomPaint(
-                painter: ObjectIndicatorPainter(
+                painter: BoundingBoxPainter(
                   boxes: smoothed,
                   mirrorHorizontal: true,
                 ),
@@ -284,24 +191,24 @@ void main() {
     });
 
     test('shouldRepaint returns true when box lists differ', () {
-      final a = ObjectIndicatorPainter(boxes: [
+      final a = BoundingBoxPainter(boxes: [
         const SmoothedBox(
           left: 0.1,
           top: 0.1,
           width: 0.3,
           height: 0.4,
-          label: 'ban',
+          label: 'x',
           trackId: 1,
           missedFrames: 0,
         ),
       ]);
-      final b = ObjectIndicatorPainter(boxes: [
+      final b = BoundingBoxPainter(boxes: [
         const SmoothedBox(
           left: 0.5,
           top: 0.5,
           width: 0.2,
           height: 0.2,
-          label: 'cay',
+          label: 'y',
           trackId: 2,
           missedFrames: 0,
         ),
@@ -311,8 +218,101 @@ void main() {
     });
 
     test('shouldRepaint returns false when box lists are identical', () {
-      final painter = ObjectIndicatorPainter(boxes: []);
-      expect(painter.shouldRepaint(ObjectIndicatorPainter(boxes: [])), isFalse);
+      final painter = BoundingBoxPainter(boxes: []);
+      expect(painter.shouldRepaint(BoundingBoxPainter(boxes: [])), isFalse);
+    });
+  });
+
+  // BoxTracker
+
+  group('BoxTracker', () {
+    DetectionObject make({
+      String label = 'person',
+      double left = 0.1,
+      double top = 0.1,
+      double w = 0.3,
+      double h = 0.4,
+    }) =>
+        DetectionObject(
+          label: label,
+          confidence: 0.9,
+          boundingBox: BoundingBox(left: left, top: top, width: w, height: h),
+        );
+
+    test('returns empty list when updated with empty detections', () {
+      final tracker = BoxTracker();
+      expect(tracker.update([]), isEmpty);
+    });
+
+    test('new detection added to tracked list', () {
+      final tracker = BoxTracker();
+      final result = tracker.update([make(label: 'person')]);
+
+      expect(result.length, 1);
+      expect(result[0].label, 'person');
+    });
+
+    test('same object detected twice remains single track', () {
+      final tracker = BoxTracker();
+      tracker.update([make(label: 'person', left: 0.1)]);
+      // The position shifts slightly but is still treated as the same track via IoU.
+      final result = tracker.update([make(label: 'person', left: 0.12)]);
+
+      expect(result.length, 1);
+    });
+
+    test('track is deleted after maxTrackAge if no longer detected', () {
+      final tracker = BoxTracker();
+      final start = DateTime(2026, 1, 1, 12, 0, 0);
+
+      tracker.update([make(label: 'person')], now: start);
+      final result = tracker.update(
+        [],
+        now: start.add(const Duration(milliseconds: 450)),
+      );
+
+      expect(result, isEmpty);
+    });
+
+    test('two different objects are tracked independently', () {
+      final tracker = BoxTracker();
+      final result = tracker.update([
+        make(label: 'person', left: 0.1),
+        make(label: 'bicycle', left: 0.6),
+      ]);
+
+      expect(result.length, 2);
+      expect(result.map((b) => b.label).toSet(), {'person', 'bicycle'});
+    });
+
+    test('clear() empties the tracker', () {
+      final tracker = BoxTracker();
+      tracker.update([make()]);
+      tracker.clear();
+      expect(tracker.update([]), isEmpty);
+    });
+
+    test('new track starts with missedFrames = 0', () {
+      final tracker = BoxTracker();
+      final result = tracker.update([make(label: 'y')]);
+
+      expect(result.single.missedFrames, 0);
+    });
+
+    test('matched track will set missedFrames to 0 after update', () {
+      final tracker = BoxTracker();
+      final start = DateTime(2026, 1, 1, 12, 0, 0);
+
+      tracker.update([make(label: 'z')], now: start);
+      // One frame without detections sets missedFrames = 1.
+      tracker.update([], now: start.add(const Duration(milliseconds: 100)));
+      // When the detection returns, missedFrames resets to 0.
+      final result = tracker.update(
+        [make(label: 'z', left: 0.11)],
+        now: start.add(const Duration(milliseconds: 200)),
+      );
+
+      expect(result.single.missedFrames, 0);
     });
   });
 }

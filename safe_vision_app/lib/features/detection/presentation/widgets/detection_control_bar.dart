@@ -4,13 +4,9 @@ class DetectionControlBar extends StatelessWidget {
   const DetectionControlBar({
     super.key,
     required this.onStop,
-    required this.onSettings,
-    required this.onSwitchCamera,
   });
 
   final VoidCallback onStop;
-  final VoidCallback onSettings;
-  final VoidCallback onSwitchCamera;
   static const double _kMinAccessibleTouchTarget = 56;
 
   @override
@@ -35,26 +31,6 @@ class DetectionControlBar extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(
               children: [
-                IconButton(
-                  tooltip: 'Cài đặt',
-                  style: IconButton.styleFrom(
-                    minimumSize: const Size.square(_kMinAccessibleTouchTarget),
-                    foregroundColor: colorScheme.onSurface,
-                  ),
-                  icon: const Icon(Icons.settings, size: 30),
-                  onPressed: onSettings,
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  tooltip: 'Đổi camera',
-                  style: IconButton.styleFrom(
-                    minimumSize: const Size.square(_kMinAccessibleTouchTarget),
-                    foregroundColor: colorScheme.onSurface,
-                  ),
-                  icon: const Icon(Icons.cameraswitch_outlined, size: 30),
-                  onPressed: onSwitchCamera,
-                ),
-                const SizedBox(width: 12),
                 Expanded(
                   child: ElevatedButton.icon(
                     style: stopButtonBaseStyle.copyWith(

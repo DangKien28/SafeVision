@@ -8,7 +8,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
-import 'package:safe_vision_app/core/models/camera_frame.dart';
+import 'package:safe_vision_app/core/services/camera_service.dart'
+    show CameraFrame;
 import 'package:safe_vision_app/core/usecases/usecase.dart';
 import 'package:safe_vision_app/features/detection/domain/entities/detection_object.dart';
 import 'package:safe_vision_app/features/detection/domain/repositories/detection_repository.dart';
@@ -28,7 +29,7 @@ CameraFrame makeFakeFrame() => CameraFrame(
     );
 
 DetectionObject _makeDetection({
-  String label = 'nguoi_di_bo',
+  String label = 'person',
   double confidence = 0.85,
   double left = 0.1,
   double top = 0.1,
@@ -79,8 +80,8 @@ void main() {
 
     test('returns list of DetectionObject from repository', () async {
       final expected = [
-        _makeDetection(label: 'nguoi_di_bo', confidence: 0.9),
-        _makeDetection(label: 'xe', confidence: 0.7),
+        _makeDetection(label: 'person', confidence: 0.9),
+        _makeDetection(label: 'bicycle', confidence: 0.7),
       ];
       when(() => mockRepository.detectFromFrame(any(),
               rotationDegrees: any(named: 'rotationDegrees')))
@@ -90,8 +91,8 @@ void main() {
 
       expect(result, equals(expected));
       expect(result.length, 2);
-      expect(result[0].label, 'nguoi_di_bo');
-      expect(result[1].label, 'xe');
+      expect(result[0].label, 'person');
+      expect(result[1].label, 'bicycle');
     });
 
     test('returns empty list when no objects are detected', () async {
@@ -161,7 +162,7 @@ void main() {
   group('DetectionObject', () {
     test('voiceWarning translates label to Vietnamese', () {
       final obj = _makeDetection(
-          label: 'nguoi_di_bo', left: 0.1, top: 0.1, width: 0.4, height: 0.4);
+          label: 'person', left: 0.1, top: 0.1, width: 0.4, height: 0.4);
       expect(obj.voiceWarning, contains('người đi bộ'));
     });
 

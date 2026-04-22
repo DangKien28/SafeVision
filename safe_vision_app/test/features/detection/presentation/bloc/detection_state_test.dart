@@ -26,22 +26,18 @@ void main() {
 
     test('DetectionSuccess equality with same detections and timestamp', () {
       const obj = DetectionObject(
-        label: 'xe',
+        label: 'car',
         confidence: 0.9,
         boundingBox: BoundingBox(left: 0, top: 0, width: 0.1, height: 0.1),
       );
-      const s1 = DetectionSuccess(
-          detections: [obj], trackedDetections: [], timestamp: 100);
-      const s2 = DetectionSuccess(
-          detections: [obj], trackedDetections: [], timestamp: 100);
+      const s1 = DetectionSuccess(detections: [obj], timestamp: 100);
+      const s2 = DetectionSuccess(detections: [obj], timestamp: 100);
       expect(s1, equals(s2));
     });
 
     test('DetectionSuccess inequality with different timestamp', () {
-      const s1 = DetectionSuccess(
-          detections: [], trackedDetections: [], timestamp: 100);
-      const s2 = DetectionSuccess(
-          detections: [], trackedDetections: [], timestamp: 200);
+      const s1 = DetectionSuccess(detections: [], timestamp: 100);
+      const s2 = DetectionSuccess(detections: [], timestamp: 200);
       expect(s1, isNot(equals(s2)));
     });
 

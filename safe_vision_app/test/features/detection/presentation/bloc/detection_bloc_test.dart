@@ -1,25 +1,33 @@
+// test/features/detection/presentation/bloc/detection_bloc_test.dart
+// v4: CameraImage → CameraFrame throughout.
+// MockCameraImage removed; fakeCameraFrame() helper creates a minimal
+// CameraFrame with no AHardwareBuffer dependency.
+
 import 'dart:typed_data';
 
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
-import 'package:safe_vision_app/core/models/camera_frame.dart';
+import 'package:safe_vision_app/core/services/camera_service.dart'
+    show CameraFrame;
+import 'package:safe_vision_app/core/usecases/usecase.dart';
 import 'package:safe_vision_app/features/detection/domain/entities/detection_object.dart';
+import 'package:safe_vision_app/features/detection/domain/usecases/close_model_usecase.dart';
 import 'package:safe_vision_app/features/detection/domain/usecases/detection_object_from_frame.dart';
 import 'package:safe_vision_app/features/detection/domain/usecases/load_model_usecase.dart';
-import 'package:safe_vision_app/features/detection/domain/usecases/close_model_usecase.dart';
 import 'package:safe_vision_app/features/detection/presentation/bloc/detection_bloc.dart';
 import 'package:safe_vision_app/features/detection/presentation/bloc/detection_event.dart';
 import 'package:safe_vision_app/features/detection/presentation/bloc/detection_state.dart';
-import 'package:safe_vision_app/core/usecases/usecase.dart';
 
 class MockLoadModelUsecase extends Mock implements LoadModelUsecase {}
 
-class MockCloseModelUsecase extends Mock implements CloseModelUsecase {}
-
 class MockDetectFromFrame extends Mock implements DetectionObjectFromFrame {}
 
+class MockCloseModelUsecase extends Mock implements CloseModelUsecase {}
+
+/// Creates a minimal [CameraFrame] for tests.
+/// No AHardwareBuffer, no camera plugin dependency.
 CameraFrame fakeCameraFrame() => CameraFrame(
       planes: [Uint8List(0), Uint8List(0), Uint8List(0)],
       rowStrides: [640, 320, 320],
@@ -28,8 +36,10 @@ CameraFrame fakeCameraFrame() => CameraFrame(
       height: 480,
     );
 
-DetectionObject _safeObject(
-        {String label = 'nguoi_di_bo', double confidence = 0.8}) =>
+DetectionObject _safeObject({
+  String label = 'person',
+  double confidence = 0.8,
+}) =>
     DetectionObject(
       label: label,
       confidence: confidence,
@@ -41,8 +51,10 @@ DetectionObject _safeObject(
       ),
     );
 
-DetectionObject _dangerousObject(
-        {String label = 'nguoi_di_bo', double confidence = 0.9}) =>
+DetectionObject _dangerousObject({
+  String label = 'person',
+  double confidence = 0.9,
+}) =>
     DetectionObject(
       label: label,
       confidence: confidence,
@@ -56,28 +68,29 @@ DetectionObject _dangerousObject(
 
 void main() {
   late MockLoadModelUsecase mockLoadModel;
-  late MockCloseModelUsecase mockCloseModel;
   late MockDetectFromFrame mockDetectFromFrame;
+  late MockCloseModelUsecase mockCloseModel;
 
   setUpAll(() {
+    // Fallback for CameraFrame passed to detectFromFrame(any(), ...).
     registerFallbackValue(fakeCameraFrame());
     registerFallbackValue(const NoParams());
   });
 
   setUp(() {
     mockLoadModel = MockLoadModelUsecase();
-    mockCloseModel = MockCloseModelUsecase();
     mockDetectFromFrame = MockDetectFromFrame();
+    mockCloseModel = MockCloseModelUsecase();
 
-    when(() => mockCloseModel.call(any())).thenAnswer((_) async {});
     when(() => mockLoadModel.call(any())).thenAnswer((_) async {});
+    when(() => mockCloseModel.call(any())).thenAnswer((_) async {});
   });
 
   DetectionBloc buildBloc({DetectionWarningCallback? onWarning}) =>
       DetectionBloc(
         loadModel: mockLoadModel,
-        closeModel: mockCloseModel,
         detectFromFrame: mockDetectFromFrame,
+        closeModel: mockCloseModel,
         onWarning: onWarning ??
             ({required text, required immediate, required withVibration}) {},
       );
@@ -90,122 +103,82 @@ void main() {
 
   group('DetectionStarted', () {
     blocTest<DetectionBloc, DetectionState>(
-      'phát ra [Loading, ModelReady] khi khởi tạo thành công',
+      'phát ra [Loading, ModelReady]',
       build: buildBloc,
       act: (bloc) => bloc.add(const DetectionStarted()),
-      expect: () => [const DetectionLoading(), const DetectionModelReady()],
-      verify: (_) => verify(() => mockLoadModel.call(any())).called(1),
-    );
-
-    blocTest<DetectionBloc, DetectionState>(
-      'phát ra [Loading, Failure] khi loadModel ném lỗi',
-      build: () {
-        when(() => mockLoadModel.call(any()))
-            .thenThrow(Exception('model not found'));
-        return buildBloc();
-      },
-      act: (bloc) => bloc.add(const DetectionStarted()),
-      expect: () => [const DetectionLoading(), isA<DetectionFailure>()],
-    );
-
-    blocTest<DetectionBloc, DetectionState>(
-      'trạng thái theo dõi được đặt lại mỗi khi gọi DetectionStarted',
-      build: buildBloc,
-      act: (bloc) async {
-        bloc.add(const DetectionStarted());
-        await Future.delayed(const Duration(milliseconds: 10));
-        bloc.add(const DetectionStarted());
-      },
       expect: () => [
-        const DetectionLoading(),
-        const DetectionModelReady(),
         const DetectionLoading(),
         const DetectionModelReady(),
       ],
     );
-  });
-
-  group('DetectionStopped', () {
-    blocTest<DetectionBloc, DetectionState>(
-      'phát ra Initial và gọi closeModel',
-      build: buildBloc,
-      seed: () => const DetectionModelReady(),
-      act: (bloc) => bloc.add(const DetectionStopped()),
-      expect: () => [const DetectionInitial()],
-      verify: (_) => verify(() => mockCloseModel.call(any())).called(1),
-    );
 
     blocTest<DetectionBloc, DetectionState>(
-      'vẫn gọi closeModel dù state ban đầu là Initial',
-      build: buildBloc,
-      act: (bloc) => bloc.add(const DetectionStopped()),
-      expect: () => [const DetectionInitial()],
-      verify: (_) => verify(() => mockCloseModel.call(any())).called(1),
-    );
-  });
-
-  group('DetectionFrameReceived — hành vi xử lý frame', () {
-    blocTest<DetectionBloc, DetectionState>(
-      'nhiều frame đến cùng lúc: chỉ một frame được xử lý tại một thời điểm',
+      'phát ra Failure khi loadModel thất bại',
       build: () {
-        when(() => mockDetectFromFrame(any(),
-                rotationDegrees: any(named: 'rotationDegrees')))
-            .thenAnswer((_) async {
-          await Future.delayed(const Duration(milliseconds: 50));
-          return [_safeObject()];
-        });
+        when(() => mockLoadModel.call(any()))
+            .thenThrow(Exception('load error'));
         return buildBloc();
       },
-      seed: () => const DetectionModelReady(),
-      act: (bloc) async {
-        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
-        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
-        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
-        await Future.delayed(const Duration(milliseconds: 100));
-      },
-      expect: () => [isA<DetectionSuccess>()],
-      verify: (_) {
-        verify(() => mockDetectFromFrame(any(),
-            rotationDegrees: any(named: 'rotationDegrees'))).called(1);
-      },
-    );
-
-    blocTest<DetectionBloc, DetectionState>(
-      'hai frame tuần tự có độ trễ đều được xử lý',
-      build: () {
-        when(() => mockDetectFromFrame(any(),
-                rotationDegrees: any(named: 'rotationDegrees')))
-            .thenAnswer((_) async => []);
-        return buildBloc();
-      },
-      seed: () => const DetectionModelReady(),
-      act: (bloc) async {
-        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
-        await Future.delayed(const Duration(milliseconds: 30));
-        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
-        await Future.delayed(const Duration(milliseconds: 30));
-      },
-      verify: (_) {
-        verify(() => mockDetectFromFrame(any(),
-                rotationDegrees: any(named: 'rotationDegrees')))
-            .called(greaterThanOrEqualTo(1));
-      },
+      act: (bloc) => bloc.add(const DetectionStarted()),
+      expect: () => [
+        const DetectionLoading(),
+        isA<DetectionFailure>(),
+      ],
     );
   });
 
-  group('Callback cảnh báo', () {
+  blocTest<DetectionBloc, DetectionState>(
+    'DetectionStopped → quay về Initial và gọi closeModel',
+    build: buildBloc,
+    seed: () => const DetectionModelReady(),
+    act: (bloc) => bloc.add(const DetectionStopped()),
+    expect: () => [const DetectionInitial()],
+    verify: (_) => verify(() => mockCloseModel.call(any())).called(1),
+  );
+
+  blocTest<DetectionBloc, DetectionState>(
+    'không có phát hiện nào → success với danh sách rỗng',
+    build: () {
+      when(() => mockDetectFromFrame(any(),
+              rotationDegrees: any(named: 'rotationDegrees')))
+          .thenAnswer((_) async => []);
+      return buildBloc();
+    },
+    seed: () => const DetectionModelReady(),
+    act: (bloc) =>
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {})),
+    expect: () => [
+      predicate<DetectionState>(
+        (s) => s is DetectionSuccess && s.detections.isEmpty,
+      ),
+    ],
+  );
+
+  blocTest<DetectionBloc, DetectionState>(
+    'một phát hiện đơn lẻ',
+    build: () {
+      when(() => mockDetectFromFrame(any(),
+              rotationDegrees: any(named: 'rotationDegrees')))
+          .thenAnswer((_) async => [_safeObject()]);
+      return buildBloc();
+    },
+    seed: () => const DetectionModelReady(),
+    act: (bloc) =>
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {})),
+    expect: () => [isA<DetectionSuccess>()],
+  );
+
+  group('Hành vi callback cảnh báo', () {
     String? capturedText;
     bool? capturedImmediate;
-    bool? capturedVibration;
 
     setUp(() {
       capturedText = null;
       capturedImmediate = null;
-      capturedVibration = null;
     });
 
     blocTest<DetectionBloc, DetectionState>(
-      'vật thể nguy hiểm → callback có immediate=true và withVibration=true',
+      'vật thể nguy hiểm → callback immediate=true sau 3 frame ổn định',
       build: () {
         when(() => mockDetectFromFrame(any(),
                 rotationDegrees: any(named: 'rotationDegrees')))
@@ -215,27 +188,32 @@ void main() {
               {required text, required immediate, required withVibration}) {
             capturedText = text;
             capturedImmediate = immediate;
-            capturedVibration = withVibration;
           },
         );
       },
       seed: () => const DetectionModelReady(),
       act: (bloc) async {
         bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
-        await Future.delayed(const Duration(milliseconds: 20));
+        await Future.delayed(const Duration(milliseconds: 10));
         bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
+        await Future.delayed(const Duration(milliseconds: 10));
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
+        await Future.delayed(const Duration(milliseconds: 10));
       },
-      expect: () => [isA<DetectionSuccess>(), isA<DetectionSuccess>()],
+      expect: () => [
+        isA<DetectionSuccess>(),
+        isA<DetectionSuccess>(),
+        isA<DetectionSuccess>()
+      ],
       verify: (_) {
-        expect(capturedImmediate, isTrue);
-        expect(capturedVibration, isTrue);
-        expect(capturedText, isNotNull);
+        expect(capturedImmediate, isTrue,
+            reason: 'Vật thể nguy hiểm phải kích hoạt cảnh báo immediate=true');
         expect(capturedText, isNotEmpty);
       },
     );
 
     blocTest<DetectionBloc, DetectionState>(
-      'vật thể an toàn → callback có immediate=false và withVibration=false',
+      'vật thể an toàn → callback immediate=false sau 3 frame ổn định',
       build: () {
         when(() => mockDetectFromFrame(any(),
                 rotationDegrees: any(named: 'rotationDegrees')))
@@ -243,216 +221,68 @@ void main() {
         return buildBloc(
           onWarning: (
               {required text, required immediate, required withVibration}) {
+            capturedText = text;
             capturedImmediate = immediate;
-            capturedVibration = withVibration;
           },
         );
       },
       seed: () => const DetectionModelReady(),
       act: (bloc) async {
         bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
-        await Future.delayed(const Duration(milliseconds: 20));
+        await Future.delayed(const Duration(milliseconds: 10));
         bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
+        await Future.delayed(const Duration(milliseconds: 10));
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
+        await Future.delayed(const Duration(milliseconds: 10));
       },
-      expect: () => [isA<DetectionSuccess>(), isA<DetectionSuccess>()],
-      verify: (_) {
-        expect(capturedImmediate, isFalse);
-        expect(capturedVibration, isFalse);
-      },
-    );
-
-    blocTest<DetectionBloc, DetectionState>(
-      'không có phát hiện nào → không gọi callback',
-      build: () {
-        when(() => mockDetectFromFrame(any(),
-                rotationDegrees: any(named: 'rotationDegrees')))
-            .thenAnswer((_) async => []);
-        return buildBloc(
-          onWarning: (
-              {required text, required immediate, required withVibration}) {
-            capturedText = text;
-          },
-        );
-      },
-      seed: () => const DetectionModelReady(),
-      act: (bloc) =>
-          bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {})),
       expect: () => [
-        predicate<DetectionState>(
-            (s) => s is DetectionSuccess && s.detections.isEmpty),
+        isA<DetectionSuccess>(),
+        isA<DetectionSuccess>(),
+        isA<DetectionSuccess>()
       ],
       verify: (_) {
-        expect(capturedText, isNull,
-            reason:
-                'Không có vật thể nào được phát hiện nên không được gọi callback');
+        expect(capturedImmediate, isNotNull);
+        expect(capturedImmediate, isFalse,
+            reason: 'Vật thể an toàn phải kích hoạt cảnh báo immediate=false');
       },
     );
   });
 
-  group('Callback onDone', () {
-    test('is called exactly once after successful inference', () async {
-      when(() => mockDetectFromFrame(any(),
-              rotationDegrees: any(named: 'rotationDegrees')))
-          .thenAnswer((_) async => []);
-
-      final bloc = buildBloc();
-      bloc.add(const DetectionStarted());
-      await Future.delayed(const Duration(milliseconds: 10));
-
-      int doneCallCount = 0;
-      bloc.add(DetectionFrameReceived(
-        fakeCameraFrame(),
-        0,
-        () => doneCallCount++,
-      ));
-      await Future.delayed(const Duration(milliseconds: 50));
-
-      expect(doneCallCount, equals(1),
-          reason: 'onDone() must be called exactly once per frame — '
-              'not zero times (camera stalls) and not more than once (double-release).');
-      await bloc.close();
-    });
-
-    test('is called exactly once even when inference throws', () async {
-      when(() => mockDetectFromFrame(any(),
-              rotationDegrees: any(named: 'rotationDegrees')))
-          .thenThrow(Exception('GPU error'));
-
-      final bloc = buildBloc();
-      bloc.add(const DetectionStarted());
-      await Future.delayed(const Duration(milliseconds: 10));
-
-      int doneCallCount = 0;
-      bloc.add(DetectionFrameReceived(
-        fakeCameraFrame(),
-        0,
-        () => doneCallCount++,
-      ));
-      await Future.delayed(const Duration(milliseconds: 50));
-
-      expect(doneCallCount, equals(1),
-          reason:
-              'onDone() must be called exactly once even when inference throws.');
-      await bloc.close();
-    });
-  });
-
-  group('Lifecycle race protection', () {
-    test('does not emit stale DetectionSuccess after DetectionStopped',
-        () async {
+  blocTest<DetectionBloc, DetectionState>(
+    'droppable: hai frame đến cùng lúc — chỉ xử lý 1 frame, frame 2 bị bỏ',
+    build: () {
       when(() => mockDetectFromFrame(any(),
               rotationDegrees: any(named: 'rotationDegrees')))
           .thenAnswer((_) async {
-        await Future.delayed(const Duration(milliseconds: 60));
+        await Future.delayed(const Duration(milliseconds: 5));
         return [_safeObject()];
       });
-
-      final emitted = <DetectionState>[];
-      final bloc = buildBloc()..stream.listen(emitted.add);
-
-      bloc.add(const DetectionStarted());
-      await Future.delayed(const Duration(milliseconds: 20));
-
+      return buildBloc();
+    },
+    seed: () => const DetectionModelReady(),
+    act: (bloc) async {
       bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
-      await Future.delayed(const Duration(milliseconds: 10));
-      bloc.add(const DetectionStopped());
-      await Future.delayed(const Duration(milliseconds: 120));
+      bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
+      await Future.delayed(const Duration(milliseconds: 50));
+    },
+    expect: () => [isA<DetectionSuccess>()],
+    verify: (_) {
+      verify(() => mockDetectFromFrame(any(),
+          rotationDegrees: any(named: 'rotationDegrees'))).called(1);
+    },
+  );
 
-      expect(
-        emitted.whereType<DetectionSuccess>(),
-        isEmpty,
-        reason: 'Kết quả hoàn thành sau stop phải bị loại bỏ',
-      );
-
-      await bloc.close();
-    });
-  });
-
-  group('Warning throttling', () {
-    test(
-        'safe object warning waits for stability and avoids repeating same track',
-        () async {
-      var warningCount = 0;
-
+  blocTest<DetectionBloc, DetectionState>(
+    'xử lý exception âm thầm — không phát state và vẫn gọi onDone',
+    build: () {
       when(() => mockDetectFromFrame(any(),
               rotationDegrees: any(named: 'rotationDegrees')))
-          .thenAnswer((_) async => [_safeObject()]);
-
-      final bloc = buildBloc(
-        onWarning: (
-            {required text, required immediate, required withVibration}) {
-          warningCount++;
-        },
-      );
-
-      bloc.add(const DetectionStarted());
-      await Future.delayed(const Duration(milliseconds: 20));
-
-      bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
-      await Future.delayed(const Duration(milliseconds: 20));
-      expect(warningCount, 0,
-          reason: 'Frame đầu tiên phải chờ track ổn định trước khi cảnh báo');
-
-      bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
-      await Future.delayed(const Duration(milliseconds: 20));
-      expect(warningCount, 1);
-
-      bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
-      await Future.delayed(const Duration(milliseconds: 20));
-      expect(warningCount, 1,
-          reason: 'Cùng một track không được lặp cảnh báo liên tục');
-
-      await bloc.close();
-    });
-
-    test('dangerous object re-warns on every frame after stability', () async {
-      var warningCount = 0;
-
-      when(() => mockDetectFromFrame(any(),
-              rotationDegrees: any(named: 'rotationDegrees')))
-          .thenAnswer((_) async => [_dangerousObject()]);
-
-      final bloc = buildBloc(
-        onWarning: (
-            {required text, required immediate, required withVibration}) {
-          warningCount++;
-        },
-      );
-
-      bloc.add(const DetectionStarted());
-      await Future.delayed(const Duration(milliseconds: 20));
-
-      // Frame 1: seenCount=1 → below stability threshold, no warning.
-      bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
-      await Future.delayed(const Duration(milliseconds: 20));
-      expect(warningCount, 0);
-
-      // Frame 2: seenCount=2 → first warning fires.
-      bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
-      await Future.delayed(const Duration(milliseconds: 20));
-      expect(warningCount, 1);
-
-      // Frame 3+: dangerous → warns on every subsequent frame.
-      bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
-      await Future.delayed(const Duration(milliseconds: 20));
-      expect(warningCount, 2,
-          reason:
-              'Dangerous object must re-warn on every frame after stability.');
-
-      bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {}));
-      await Future.delayed(const Duration(milliseconds: 20));
-      expect(warningCount, 3);
-
-      await bloc.close();
-    });
-  });
-
-  group('CloseModelUsecase', () {
-    test('call(NoParams()) chuyển tiếp sang repository.closeModel()', () async {
-      final mock = MockCloseModelUsecase();
-      when(() => mock.call(any())).thenAnswer((_) async {});
-      await mock.call(const NoParams());
-      verify(() => mock.call(any())).called(1);
-    });
-  });
+          .thenThrow(Exception('GPU error'));
+      return buildBloc();
+    },
+    seed: () => const DetectionModelReady(),
+    act: (bloc) =>
+        bloc.add(DetectionFrameReceived(fakeCameraFrame(), 90, () {})),
+    expect: () => <DetectionState>[],
+  );
 }

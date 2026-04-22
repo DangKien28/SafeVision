@@ -1,21 +1,16 @@
-import '../../../../core/models/camera_frame.dart';
+// lib/features/detection/data/repositories/detection_repository_impl.dart
+
+import '../../../../core/services/camera_service.dart' show CameraFrame;
 import '../../domain/entities/detection_object.dart';
 import '../../domain/repositories/detection_repository.dart';
 import '../datasources/detection_local_datasource.dart';
-import '../models/bounding_box_model.dart';
 
-/// Concrete implementation that delegates to [DetectionLocalDatasource] and
-/// converts the raw inference maps into domain [DetectionObject] instances.
 class DetectionRepositoryImpl implements DetectionRepository {
-  DetectionRepositoryImpl(this._datasource);
-
   final DetectionLocalDatasource _datasource;
+  DetectionRepositoryImpl(this._datasource);
 
   @override
   Future<void> loadModel() => _datasource.loadModel();
-
-  @override
-  Future<void> closeModel() => _datasource.closeModel();
 
   @override
   Future<List<DetectionObject>> detectFromFrame(
@@ -26,14 +21,20 @@ class DetectionRepositoryImpl implements DetectionRepository {
       frame,
       rotationDegrees: rotationDegrees,
     );
-
-    return rawList.map((map) {
-      final box = BoundingBoxModel.fromMap(map);
-      return DetectionObject(
-        label: map['label'] as String,
-        confidence: (map['confidence'] as num).toDouble(),
-        boundingBox: box.toEntity(),
-      );
-    }).toList();
+    return rawList
+        .map((map) => DetectionObject(
+              label: map['label'] as String,
+              confidence: (map['confidence'] as num).toDouble(),
+              boundingBox: BoundingBox(
+                left: (map['left'] as num).toDouble(),
+                top: (map['top'] as num).toDouble(),
+                width: (map['width'] as num).toDouble(),
+                height: (map['height'] as num).toDouble(),
+              ),
+            ))
+        .toList();
   }
+
+  @override
+  Future<void> closeModel() => _datasource.closeModel();
 }

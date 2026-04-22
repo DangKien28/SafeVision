@@ -1,290 +1,184 @@
-import 'dart:async';
 import 'dart:isolate';
+import 'dart:math';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 
+import 'detection_local_datasource.dart';
 import '../../../../core/config/detection_config.dart';
 import '../../../../core/constants/app_constants.dart';
+import '../../../../core/constants/asset_paths.dart';
+import '../../../../core/error/exceptions.dart';
+import '../../../../core/services/camera_service.dart' show CameraFrame;
 import '../../../../core/utils/image_converter.dart';
-import '../../../../core/models/camera_frame.dart';
-import 'detection_local_datasource.dart';
-
-// ── Delegate mode ─────────────────────────────────────────────────────────────
-
-enum _DelegateMode { accelerated, cpu, none }
-
-// ── Isolate message types ─────────────────────────────────────────────────────
-
-class _LoadRequest {
-  const _LoadRequest({
-    required this.modelBuffer,
-    required this.labelsRaw,
-    required this.delegateMode,
-    required this.numThreads,
-  });
-
-  final TransferableTypedData modelBuffer;
-  final String labelsRaw;
-  final _DelegateMode delegateMode;
-  final int numThreads;
-}
-
-class _InferenceRequest {
-  const _InferenceRequest({
-    required this.planes,
-    required this.rowStrides,
-    required this.pixelStrides,
-    required this.srcWidth,
-    required this.srcHeight,
-    required this.rotationDegrees,
-    required this.confidenceThreshold,
-    required this.iouThreshold,
-    required this.maxDetections,
-    required this.inputSize,
-  });
-
-  final List<Uint8List> planes;
-  final List<int> rowStrides;
-  final List<int> pixelStrides;
-  final int srcWidth;
-  final int srcHeight;
-  final int rotationDegrees;
-  final double confidenceThreshold;
-  final double iouThreshold;
-  final int maxDetections;
-  final int inputSize;
-}
-
-class _DelegateFailedSignal {
-  const _DelegateFailedSignal(this.reason);
-  final String reason;
-}
-
-// ── Isolate state ─────────────────────────────────────────────────────────────
-
-class _IsolateState {
-  Interpreter? interpreter;
-  List<String> labels = [];
-  bool modelLoaded = false;
-  int consecutiveFailures = 0;
-
-  static const int maxConsecutiveFailures = 3;
-}
-
-// ── Isolate entry point ───────────────────────────────────────────────────────
-
-void _inferenceEntryPoint(SendPort mainSendPort) {
-  final state = _IsolateState();
-
-  final commandPort = ReceivePort();
-  mainSendPort.send(commandPort.sendPort);
-
-  commandPort.listen((dynamic message) async {
-    if (message is _LoadRequest) {
-      await _handleLoad(state, message, mainSendPort);
-    } else if (message is _InferenceRequest) {
-      await _handleInference(state, message, mainSendPort);
-    }
-  });
-}
-
-Future<void> _handleLoad(
-  _IsolateState state,
-  _LoadRequest req,
-  SendPort out,
-) async {
-  try {
-    final bytes = req.modelBuffer.materialize().asUint8List();
-    final options = _buildOptions(req.delegateMode, req.numThreads);
-    state.interpreter = Interpreter.fromBuffer(bytes, options: options);
-    state.labels = req.labelsRaw
-        .split('\n')
-        .map((l) => l.trim())
-        .where((l) => l.isNotEmpty)
-        .toList();
-    state.modelLoaded = true;
-    state.consecutiveFailures = 0;
-    out.send(true);
-  } catch (e) {
-    debugPrint('[Isolate] load failed (delegate=${req.delegateMode}): $e');
-    out.send(_DelegateFailedSignal(e.toString()));
-  }
-}
-
-Future<void> _handleInference(
-  _IsolateState state,
-  _InferenceRequest req,
-  SendPort out,
-) async {
-  if (!state.modelLoaded || state.interpreter == null) {
-    out.send(<Map<String, dynamic>>[]);
-    return;
-  }
-  try {
-    final results = _runInference(state, req);
-    state.consecutiveFailures = 0;
-    out.send(results);
-  } catch (e) {
-    state.consecutiveFailures++;
-    debugPrint('[Isolate] inference error #${state.consecutiveFailures}: $e');
-    if (state.consecutiveFailures >= _IsolateState.maxConsecutiveFailures) {
-      out.send(_DelegateFailedSignal(e.toString()));
-    } else {
-      out.send(<Map<String, dynamic>>[]);
-    }
-  }
-}
-
-// ── Delegate construction ─────────────────────────────────────────────────────
-
-InterpreterOptions _buildOptions(_DelegateMode mode, int numThreads) {
-  final opts = InterpreterOptions()..threads = numThreads;
-  switch (mode) {
-    case _DelegateMode.accelerated:
-      try {
-        opts.addDelegate(GpuDelegateV2());
-      } catch (_) {}
-    case _DelegateMode.cpu:
-      opts.addDelegate(XNNPackDelegate(
-        options: XNNPackDelegateOptions(numThreads: numThreads),
-      ));
-    case _DelegateMode.none:
-      break;
-  }
-  return opts;
-}
-
-// ── Inference ─────────────────────────────────────────────────────────────────
-
-List<Map<String, dynamic>> _runInference(
-  _IsolateState state,
-  _InferenceRequest req,
-) {
-  final interpreter = state.interpreter!;
-  final lb = ImageConverter.yuvToLetterboxedFloat32(
-    planes: req.planes,
-    rowStrides: req.rowStrides,
-    pixelStrides: req.pixelStrides,
-    srcWidth: req.srcWidth,
-    srcHeight: req.srcHeight,
-    inputSize: req.inputSize,
-    rotationDegrees: req.rotationDegrees,
-  );
-
-  final shape = [1, req.inputSize, req.inputSize, 3];
-  interpreter.resizeInputTensor(0, shape);
-  interpreter.allocateTensors();
-  interpreter.getInputTensor(0).setTo(lb.inputTensor);
-  interpreter.invoke();
-
-  final raw = interpreter.getOutputTensor(0).data.buffer.asFloat32List();
-  return _decodeAndNms(raw, lb, state.labels, req);
-}
-
-List<Map<String, dynamic>> _decodeAndNms(
-  Float32List raw,
-  LetterboxResult lb,
-  List<String> labels,
-  _InferenceRequest req,
-) {
-  final nc = labels.length;
-  final na = raw.length ~/ (4 + nc);
-  final dets = <Map<String, dynamic>>[];
-
-  for (int a = 0; a < na; a++) {
-    final b = a * (4 + nc);
-    double best = req.confidenceThreshold;
-    int cls = -1;
-    for (int c = 0; c < nc; c++) {
-      if (raw[b + 4 + c] > best) {
-        best = raw[b + 4 + c];
-        cls = c;
-      }
-    }
-    if (cls < 0) continue;
-
-    final box = ImageConverter.unLetterboxBox(
-      cx: raw[b],
-      cy: raw[b + 1],
-      bw: raw[b + 2],
-      bh: raw[b + 3],
-      coordinatesAreNormalized: !AppConstants.yoloOutputLogits,
-      padLeft: lb.padLeft,
-      padTop: lb.padTop,
-      scale: lb.scale,
-      origWidth: lb.origWidth,
-      origHeight: lb.origHeight,
-      inputSize: req.inputSize,
-    );
-
-    dets.add({
-      'label': labels[cls],
-      'confidence': best,
-      'left': box.left,
-      'top': box.top,
-      'width': box.width,
-      'height': box.height,
-    });
-  }
-  return _nms(dets, req.iouThreshold, req.maxDetections);
-}
-
-List<Map<String, dynamic>> _nms(
-  List<Map<String, dynamic>> d,
-  double iou,
-  int max,
-) {
-  d.sort((a, b) =>
-      (b['confidence'] as double).compareTo(a['confidence'] as double));
-  final k = <Map<String, dynamic>>[];
-  for (final det in d) {
-    if (k.length >= max) break;
-    if (k.every((kept) => _iou(det, kept) <= iou)) k.add(det);
-  }
-  return k;
-}
-
-double _iou(Map<String, dynamic> a, Map<String, dynamic> b) {
-  final al = a['left'] as double, at = a['top'] as double;
-  final ar = al + (a['width'] as double), ab = at + (a['height'] as double);
-  final bl = b['left'] as double, bt = b['top'] as double;
-  final br = bl + (b['width'] as double), bb = bt + (b['height'] as double);
-  final ix = (ar < br ? ar : br) - (al > bl ? al : bl);
-  final iy = (ab < bb ? ab : bb) - (at > bt ? at : bt);
-  if (ix <= 0 || iy <= 0) return 0;
-  final inter = ix * iy;
-  return inter / ((ar - al) * (ab - at) + (br - bl) * (bb - bt) - inter);
-}
 
 class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
-  DetectionLocalDatasourceImpl(this._detectionConfig);
+  DetectionLocalDatasourceImpl(this._config);
 
-  final DetectionConfig _detectionConfig;
+  final DetectionConfig _config;
+
+  List<String> _labels = [];
+  List<int> _outputShape = [];
+  bool _modelLoaded = false;
+
+  Uint8List? _cachedModelBytes;
+  bool _allowNnapi = true;
 
   Isolate? _isolate;
-  SendPort? _toIsolate;
+  SendPort? _isolateSendPort;
 
-  ReceivePort? _rawPort;
-  Stream<dynamic>? _fromIsolate;
-
+  static const int _maxConsecutiveTimeouts = 2;
+  int _consecutiveTimeouts = 0;
   bool _isolateBusy = false;
 
-  Uint8List? _modelBytes;
-  String? _labelsRaw;
-
-  _DelegateMode _delegateMode = _DelegateMode.accelerated;
-  int _consecutiveAcceleratedFailures = 0;
-  int _consecutiveCpuFailures = 0;
-
-  // ── DetectionLocalDatasource ───────────────────────────────────────────────
+  /// Tracks the duration of the most recent successful inference for
+  /// performance monitoring. Zero until the first successful inference.
+  int _lastInferenceMs = 0;
+  int get lastInferenceMs => _lastInferenceMs;
 
   @override
   Future<void> loadModel() async {
-    await _ensureModelAssets();
-    await _spawnAndLoad();
-    _clearModelAssets();
+    if (_modelLoaded) {
+      debugPrint('[DS] loadModel: already loaded, skipping');
+      return;
+    }
+    try {
+      final raw = await rootBundle.loadString(AssetPaths.labels);
+      _labels = raw
+          .split('\n')
+          .map((l) => l.trim())
+          .where((l) => l.isNotEmpty)
+          .toList();
+
+      final modelData = await rootBundle.load(AssetPaths.modelFile);
+      _cachedModelBytes = modelData.buffer.asUint8List();
+
+      await _spawnIsolate(_cachedModelBytes!);
+
+      if (kDebugMode) {
+        debugPrint('[DS] Model loaded — '
+            'delegate=${_allowNnapi ? "NNAPI→XNNPack→CPU" : "XNNPack→CPU"} '
+            'threads=${AppConstants.inferenceThreads}');
+        debugPrint('[DS]   output=$_outputShape  labels=${_labels.length}');
+      }
+
+      _modelLoaded = true;
+    } catch (e, st) {
+      debugPrint('[DS] loadModel FAILED: $e\n$st');
+      throw ModelNotFoundException('Cannot load model: $e');
+    }
+  }
+
+  Future<void> _spawnIsolate(Uint8List modelBytes) async {
+    final handshakePort = ReceivePort();
+    _isolate = await Isolate.spawn(_isolateEntry, handshakePort.sendPort);
+    _isolateSendPort = await handshakePort.first as SendPort;
+    handshakePort.close();
+
+    final ackPort = ReceivePort();
+    _isolateSendPort!.send(_IsolateInitMsg(
+      labels: List.unmodifiable(_labels),
+      inputSize: AppConstants.inputSize,
+      modelBytes: TransferableTypedData.fromList([modelBytes]),
+      ackPort: ackPort.sendPort,
+      allowNnapi: _allowNnapi,
+    ));
+
+    final ack = await ackPort.first as _IsolateInitAck;
+    ackPort.close();
+
+    if (ack.error != null) throw Exception(ack.error);
+    _outputShape = ack.outputShape;
+
+    if (kDebugMode) debugPrint('[DS] Isolate ready — running warmup probe...');
+
+    if (_allowNnapi && Platform.isAndroid) {
+      final passed = await _runWarmupProbe();
+      if (!passed) {
+        debugPrint('[DS] WARMUP PROBE FAILED: NNAPI exceeded '
+            '${AppConstants.warmupTimeoutMs}ms — switching to XNNPack/CPU.');
+        _allowNnapi = false;
+        await _killIsolateOnly();
+        await _spawnIsolate(modelBytes);
+      } else {
+        if (kDebugMode) debugPrint('[DS] WARMUP PROBE PASSED: NNAPI ok');
+      }
+    } else {
+      if (kDebugMode) {
+        debugPrint('[DS] Warmup probe skipped '
+            '(${Platform.isAndroid ? "CPU-only mode" : "non-Android"})');
+      }
+    }
+  }
+
+  Future<bool> _runWarmupProbe() async {
+    if (_isolateSendPort == null) return false;
+    final size = AppConstants.inputSize;
+    final dummy = Float32List(size * size * 3);
+    final replyPort = ReceivePort();
+    _isolateSendPort!.send(_WarmupProbeMsg(
+      replyPort: replyPort.sendPort,
+      dummyTensor: TransferableTypedData.fromList([dummy]),
+      inputSize: size,
+    ));
+    bool passed = false;
+    try {
+      final r = await replyPort.first.timeout(
+        Duration(milliseconds: AppConstants.warmupTimeoutMs),
+        onTimeout: () => 'TIMEOUT',
+      );
+      passed = r != 'TIMEOUT';
+    } catch (_) {
+    } finally {
+      replyPort.close();
+    }
+    return passed;
+  }
+
+  Future<void> _killIsolateOnly() async {
+    final sp = _isolateSendPort;
+    final iso = _isolate;
+    _isolateSendPort = null;
+    _isolate = null;
+    _isolateBusy = false;
+    if (sp != null) {
+      try {
+        final ack = ReceivePort();
+        sp.send(_IsolateShutdown(replyPort: ack.sendPort));
+        await ack.first
+            .timeout(const Duration(milliseconds: 300))
+            .catchError((_) => null);
+        ack.close();
+      } catch (_) {}
+    }
+    iso?.kill(priority: Isolate.immediate);
+    if (kDebugMode) debugPrint('[DS] Old isolate killed');
+  }
+
+  Future<void> _killAndRespawnIsolate() async {
+    if (kDebugMode) {
+      debugPrint('[DS] Respawning isolate '
+          '(allowNnapi=$_allowNnapi, '
+          'consecutiveTimeouts=$_consecutiveTimeouts)...');
+    }
+    await _killIsolateOnly();
+    try {
+      if (_cachedModelBytes == null) {
+        final d = await rootBundle.load(AssetPaths.modelFile);
+        _cachedModelBytes = d.buffer.asUint8List();
+      }
+      await _spawnIsolate(_cachedModelBytes!);
+      _consecutiveTimeouts = 0;
+      if (kDebugMode) {
+        debugPrint('[DS] Isolate respawned — '
+            'delegate: ${_allowNnapi ? "NNAPI" : "XNNPack/CPU"}');
+      }
+    } catch (e) {
+      debugPrint('[DS] Respawn FAILED: $e');
+      _modelLoaded = false;
+    }
   }
 
   @override
@@ -292,204 +186,511 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
     CameraFrame frame, {
     required int rotationDegrees,
   }) async {
-    if (_toIsolate == null ||
-        _fromIsolate == null ||
-        _delegateMode == _DelegateMode.none) {
-      return [];
-    }
+    if (!_modelLoaded || _isolateSendPort == null) return [];
     if (_isolateBusy) return [];
-
     _isolateBusy = true;
 
-    StreamSubscription<dynamic>? sub;
-    var subCancelled = false;
-    Future<void> cancelSub() async {
-      if (subCancelled) return;
-      subCancelled = true;
-      await sub?.cancel();
-    }
+    ReceivePort? replyPort;
+    final sw = Stopwatch()..start();
 
     try {
-      final completer = Completer<dynamic>();
+      final planeBytes = <TransferableTypedData>[
+        for (final p in frame.planes) TransferableTypedData.fromList([p]),
+      ];
 
-      sub = _fromIsolate!.listen((msg) {
-        if (!completer.isCompleted) {
-          completer.complete(msg);
-          unawaited(cancelSub());
-        }
-      });
-
-      _toIsolate!.send(_InferenceRequest(
-        planes: frame.planes,
-        rowStrides: frame.rowStrides,
-        pixelStrides: frame.pixelStrides,
-        srcWidth: frame.width,
-        srcHeight: frame.height,
+      replyPort = ReceivePort();
+      _isolateSendPort!.send(_InferenceJob(
+        replyPort: replyPort.sendPort,
+        planeBytes: planeBytes,
+        planeRowStrides: frame.rowStrides,
+        planePixelStrides: frame.pixelStrides,
+        imageWidth: frame.width,
+        imageHeight: frame.height,
         rotationDegrees: rotationDegrees,
-        confidenceThreshold: _detectionConfig.confidenceThreshold,
-        iouThreshold: _detectionConfig.iouThreshold,
-        maxDetections: _detectionConfig.maxDetections,
-        inputSize: AppConstants.inputSize,
+        confidenceThreshold: _config.confidenceThreshold,
+        iouThreshold: _config.iouThreshold,
+        maxDetections: _config.maxDetections,
       ));
 
-      final result = await completer.future.timeout(
-        const Duration(milliseconds: AppConstants.inferenceTimeoutMs),
+      // FIX RC-1: Use AppConstants.inferenceTimeoutMs (now 5000ms).
+      // The old hardcoded 4000ms caused false timeouts at 2640ms inference
+      // + GC jitter, triggering unnecessary isolate respawns.
+      final dynamic result = await replyPort.first.timeout(
+        Duration(milliseconds: AppConstants.inferenceTimeoutMs),
         onTimeout: () {
-          unawaited(cancelSub());
-          return <Map<String, dynamic>>[];
+          if (kDebugMode) {
+            debugPrint('[DS] inference timeout after '
+                '${AppConstants.inferenceTimeoutMs}ms '
+                '(elapsed: ${sw.elapsedMilliseconds}ms)');
+          }
+          return 'TIMEOUT';
         },
       );
 
-      if (result is _DelegateFailedSignal) {
-        debugPrint('[Datasource] delegate failed: ${result.reason}');
-        await _handleDelegateFailure();
+      if (result is String) {
+        if (result == 'TIMEOUT') {
+          _consecutiveTimeouts++;
+          if (_consecutiveTimeouts >= _maxConsecutiveTimeouts) {
+            if (_allowNnapi) {
+              debugPrint('[DS] $_maxConsecutiveTimeouts timeouts on NNAPI — '
+                  'switching to XNNPack/CPU.');
+              _allowNnapi = false;
+            } else {
+              debugPrint(
+                  '[DS] $_maxConsecutiveTimeouts timeouts on XNNPack/CPU — '
+                  'device may be thermally throttled '
+                  '(${AppConstants.inputSize}×${AppConstants.inputSize} input).');
+            }
+            await _killAndRespawnIsolate();
+          } else {
+            debugPrint('[DS] timeout #$_consecutiveTimeouts — skipping frame');
+          }
+        } else {
+          // 'ERROR:...' string from isolate
+          debugPrint('[DS] isolate error: $result');
+          if (_allowNnapi) _allowNnapi = false;
+          await _killAndRespawnIsolate();
+          _consecutiveTimeouts = 0;
+        }
         return [];
       }
 
-      if (_delegateMode == _DelegateMode.accelerated) {
-        _consecutiveAcceleratedFailures = 0;
-      } else {
-        _consecutiveCpuFailures = 0;
+      sw.stop();
+      _lastInferenceMs = sw.elapsedMilliseconds;
+      _consecutiveTimeouts = 0;
+
+      if (kDebugMode && _lastInferenceMs > 1000) {
+        debugPrint('[DS] slow inference: ${_lastInferenceMs}ms '
+            '(delegate: ${_allowNnapi ? "NNAPI" : "XNNPack/CPU"})');
       }
 
-      return (result as List).cast<Map<String, dynamic>>();
+      return List<Map<String, dynamic>>.from(result as List);
     } catch (e) {
-      debugPrint('[Datasource] runInference error: $e');
+      debugPrint('[DS] runInference exception: $e');
       return [];
     } finally {
-      await cancelSub();
+      replyPort?.close();
       _isolateBusy = false;
     }
   }
 
   @override
   Future<void> closeModel() async {
-    _isolateBusy = false;
-    _killIsolate();
-    _clearModelAssets();
-    _delegateMode = _DelegateMode.accelerated;
-    _consecutiveAcceleratedFailures = 0;
-    _consecutiveCpuFailures = 0;
-  }
-
-  // ── Delegate failure / downgrade ──────────────────────────────────────────
-
-  Future<void> _handleDelegateFailure() async {
-    if (_delegateMode == _DelegateMode.accelerated) {
-      _consecutiveAcceleratedFailures++;
-      if (_consecutiveAcceleratedFailures >=
-          AppConstants.maxConsecutiveAcceleratedFailures) {
-        debugPrint('[Datasource] GPU failed — downgrading to XNNPack CPU');
-        _delegateMode = _DelegateMode.cpu;
-        _consecutiveAcceleratedFailures = 0;
-        _killIsolate();
-        await _spawnAndLoad();
-        _clearModelAssets();
-      }
-    } else if (_delegateMode == _DelegateMode.cpu) {
-      _consecutiveCpuFailures++;
-      if (_consecutiveCpuFailures >= AppConstants.maxConsecutiveCpuFailures) {
-        debugPrint('[Datasource] CPU failed — disabling inference');
-        _delegateMode = _DelegateMode.none;
-        _killIsolate();
-        _clearModelAssets();
-      }
-    }
-  }
-
-  // ── Asset helpers ──────────────────────────────────────────────────────────
-
-  /// Loads model bytes and labels from disk if they are not already cached.
-  /// Called before every _spawnAndLoad() to support delegate respawns after
-  /// the heap copy was cleared by _clearModelAssets().
-  Future<void> _ensureModelAssets() async {
-    // prefer_conditional_assignment: use ??= so the async expression is only
-    // evaluated when the field is actually null.
-    _modelBytes ??= (await rootBundle.load(AppConstants.modelFileName))
-        .buffer
-        .asUint8List();
-    _labelsRaw ??= await rootBundle.loadString(AppConstants.labelsFileName);
-  }
-
-  /// Nulls both asset fields to release their memory from the Dart heap.
-  void _clearModelAssets() {
-    _modelBytes = null;
-    _labelsRaw = null;
-  }
-
-  // ── Isolate lifecycle ──────────────────────────────────────────────────────
-
-  Future<void> _spawnAndLoad() async {
-    _killIsolate();
-
-    // Reload assets from disk if they were cleared after a previous load.
-    await _ensureModelAssets();
-
-    _rawPort = ReceivePort();
-    _fromIsolate = _rawPort!.asBroadcastStream();
-
-    _isolate = await Isolate.spawn(
-      _inferenceEntryPoint,
-      _rawPort!.sendPort,
-      debugName: 'SafeVision-Inference',
-      errorsAreFatal: false,
-    );
-
-    _toIsolate = await _fromIsolate!.first as SendPort;
-
-    final ack = await _sendLoad();
-
-    if (ack is _DelegateFailedSignal) {
-      debugPrint('[Datasource] model load failed: ${ack.reason}');
-      await _handleDelegateFailure();
-    }
-  }
-
-  Future<dynamic> _sendLoad() async {
-    final completer = Completer<dynamic>();
-
-    StreamSubscription<dynamic>? sub;
-    var subCancelled = false;
-    Future<void> cancelSub() async {
-      if (subCancelled) return;
-      subCancelled = true;
-      await sub?.cancel();
-    }
-
-    try {
-      sub = _fromIsolate!.listen((msg) {
-        if (!completer.isCompleted) {
-          completer.complete(msg);
-          unawaited(cancelSub());
-        }
-      });
-
-      _toIsolate!.send(_LoadRequest(
-        modelBuffer: TransferableTypedData.fromList([_modelBytes!]),
-        labelsRaw: _labelsRaw!,
-        delegateMode: _delegateMode,
-        numThreads: AppConstants.inferenceThreads,
-      ));
-
-      return await completer.future.timeout(
-        const Duration(milliseconds: AppConstants.inferenceTimeoutMs),
-        onTimeout: () {
-          unawaited(cancelSub());
-          return _DelegateFailedSignal('load timeout');
-        },
-      );
-    } finally {
-      await cancelSub();
-    }
-  }
-
-  void _killIsolate() {
-    _isolate?.kill(priority: Isolate.immediate);
+    final sp = _isolateSendPort;
+    final iso = _isolate;
+    _isolateSendPort = null;
     _isolate = null;
-    _rawPort?.close();
-    _rawPort = null;
-    _fromIsolate = null;
-    _toIsolate = null;
     _isolateBusy = false;
+    _modelLoaded = false;
+    _consecutiveTimeouts = 0;
+    _lastInferenceMs = 0;
+
+    if (sp != null) {
+      try {
+        final ack = ReceivePort();
+        sp.send(_IsolateShutdown(replyPort: ack.sendPort));
+        await ack.first.timeout(const Duration(milliseconds: 500),
+            onTimeout: () {
+          debugPrint('[DS] isolate shutdown timeout — force killing');
+          return null;
+        }).catchError((_) => null);
+        ack.close();
+      } catch (_) {}
+    }
+    iso?.kill(priority: Isolate.immediate);
+    if (kDebugMode) debugPrint('[DS] model closed');
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Isolate globals (top-level to avoid SendPort serialisation)
+// ─────────────────────────────────────────────────────────────────────────────
+
+Interpreter? _cachedInterpreter;
+Float32List? _cachedTensor;
+Uint8List? _cachedOutputBytes;
+Float32List? _cachedOutputFloats;
+int _cachedOutputLen = 0;
+
+List<String>? _initLabels;
+int _initInputSize = 0;
+List<int> _initOutputShape = const [];
+
+bool _isolateAllowNnapi = true;
+bool _nnApiFailed = false;
+
+void _isolateEntry(SendPort mainSendPort) {
+  final jobPort = ReceivePort();
+  mainSendPort.send(jobPort.sendPort);
+
+  jobPort.listen((msg) {
+    if (msg is _IsolateInitMsg) {
+      _initLabels = msg.labels;
+      _initInputSize = msg.inputSize;
+      _isolateAllowNnapi = msg.allowNnapi;
+      try {
+        _cachedInterpreter =
+            _createInterpreter(msg.modelBytes.materialize().asUint8List());
+        _validateInputShape(_cachedInterpreter!, _initInputSize);
+        _initOutputShape = _cachedInterpreter!.getOutputTensor(0).shape;
+        msg.ackPort.send(_IsolateInitAck(outputShape: _initOutputShape));
+      } catch (e) {
+        debugPrint('[Isolate] init error: $e');
+        msg.ackPort
+            .send(_IsolateInitAck(outputShape: const [], error: e.toString()));
+      }
+    } else if (msg is _WarmupProbeMsg) {
+      _handleWarmupProbe(msg);
+    } else if (msg is _IsolateShutdown) {
+      try {
+        _cachedInterpreter?.close();
+        _cachedInterpreter = null;
+      } catch (_) {}
+      msg.replyPort.send(const _IsolateInitAck(outputShape: []));
+      jobPort.close();
+      Isolate.exit();
+    } else if (msg is _InferenceJob) {
+      if (_initLabels == null) {
+        msg.replyPort.send('ERROR: not initialized');
+        return;
+      }
+      _processJob(msg);
+    }
+  });
+}
+
+void _handleWarmupProbe(_WarmupProbeMsg msg) {
+  try {
+    final interp = _cachedInterpreter;
+    if (interp == null) {
+      msg.replyPort.send('ERROR: no interpreter');
+      return;
+    }
+    final size = msg.inputSize;
+    final dummy = msg.dummyTensor
+        .materialize()
+        .asFloat32List()
+        .reshape([1, size, size, 3]);
+    _ensureOutputFlat();
+    final outputMap = <int, Object>{0: _cachedOutputBytes!};
+    interp.runForMultipleInputs([dummy], outputMap);
+    msg.replyPort.send('OK');
+  } catch (e) {
+    debugPrint('[Isolate] warmup probe error: $e');
+    msg.replyPort.send('ERROR: $e');
+  }
+}
+
+/// Delegate priority order:
+///   Android (allowNnapi=true):   NNAPI → XNNPack → CPU (explicit threads)
+///   Android (allowNnapi=false):  XNNPack → CPU (explicit threads)
+///   iOS:                         Metal → XNNPack → CPU
+Interpreter _createInterpreter(Uint8List modelBytes) {
+  // ── NNAPI (Android only, when enabled) ────────────────────────────────────
+  if (Platform.isAndroid && _isolateAllowNnapi && !_nnApiFailed) {
+    try {
+      final opts = InterpreterOptions()..useNnApiForAndroid = true;
+      final interp = Interpreter.fromBuffer(modelBytes, options: opts);
+      debugPrint('[Isolate] Delegate: NNAPI');
+      return interp;
+    } catch (e) {
+      debugPrint('[Isolate] NNAPI unavailable: $e → trying XNNPack');
+      _nnApiFailed = true;
+    }
+  }
+
+  // ── Metal (iOS) ───────────────────────────────────────────────────────────
+  if (Platform.isIOS) {
+    try {
+      final opts = InterpreterOptions()..useMetalDelegateForIOS = true;
+      final interp = Interpreter.fromBuffer(modelBytes, options: opts);
+      debugPrint('[Isolate] Delegate: Metal');
+      return interp;
+    } catch (e) {
+      debugPrint('[Isolate] Metal unavailable: $e → trying XNNPack');
+    }
+  }
+
+  // ── XNNPack (cross-platform NEON/SIMD, 1.5–2.5× faster than plain CPU) ───
+  if (Platform.isAndroid || Platform.isIOS) {
+    try {
+      final delegate = XNNPackDelegate(
+        options:
+            XNNPackDelegateOptions(numThreads: AppConstants.inferenceThreads),
+      );
+      final opts = InterpreterOptions()..addDelegate(delegate);
+      final interp = Interpreter.fromBuffer(modelBytes, options: opts);
+      debugPrint('[Isolate] Delegate: XNNPack '
+          '(${AppConstants.inferenceThreads} threads)');
+      return interp;
+    } catch (e) {
+      debugPrint('[Isolate] XNNPack unavailable: $e → CPU fallback');
+    }
+  }
+
+  // ── Plain CPU with explicit thread count ──────────────────────────────────
+  // FIX: always set thread count even on the fallback path.
+  final opts = InterpreterOptions()..threads = AppConstants.inferenceThreads;
+  debugPrint('[Isolate] Delegate: CPU '
+      '(${AppConstants.inferenceThreads} threads)');
+  return Interpreter.fromBuffer(modelBytes, options: opts);
+}
+
+void _validateInputShape(Interpreter interpreter, int expectedInputSize) {
+  final s = interpreter.getInputTensor(0).shape;
+  if (s.length != 4) {
+    throw StateError('[Isolate] Unexpected input rank ${s.length}: $s');
+  }
+  if (s[1] != expectedInputSize || s[2] != expectedInputSize) {
+    throw StateError(
+        '[Isolate] Input mismatch: app expects $expectedInputSize, '
+        'model expects ${s[1]}×${s[2]}. Update AppConstants.inputSize.');
+  }
+  debugPrint('[Isolate] Input shape validated: $s');
+}
+
+void _processJob(_InferenceJob job) {
+  try {
+    final interp = _cachedInterpreter!;
+    final planes = <Uint8List>[
+      for (final t in job.planeBytes) t.materialize().asUint8List(),
+    ];
+    final lb = ImageConverter.yuvToLetterboxedFloat32(
+      planes: planes,
+      rowStrides: job.planeRowStrides,
+      pixelStrides: job.planePixelStrides,
+      srcWidth: job.imageWidth,
+      srcHeight: job.imageHeight,
+      inputSize: _initInputSize,
+      rotationDegrees: job.rotationDegrees,
+      reuseBuffer: _cachedTensor,
+    );
+    _cachedTensor = lb.inputTensor;
+
+    final inputTensor =
+        lb.inputTensor.reshape([1, _initInputSize, _initInputSize, 3]);
+    _ensureOutputFlat();
+    final outputMap = <int, Object>{0: _cachedOutputBytes!};
+    interp.runForMultipleInputs([inputTensor], outputMap);
+
+    final results = _parseFlat(
+      flat: _cachedOutputFloats!,
+      letterbox: lb,
+      confidenceThreshold: job.confidenceThreshold,
+      iouThreshold: job.iouThreshold,
+      maxDetections: job.maxDetections,
+    );
+    job.replyPort.send(results);
+  } catch (e, st) {
+    job.replyPort.send('ERROR: $e\n$st');
+  }
+}
+
+void _ensureOutputFlat() {
+  if (_initOutputShape.length < 3) {
+    throw StateError('[Isolate] Output shape invalid: $_initOutputShape');
+  }
+  final needed = _initOutputShape[1] * _initOutputShape[2];
+  if (needed <= 0) {
+    throw StateError('[Isolate] Output shape gives needed=$needed — '
+        'model output shape is malformed: $_initOutputShape');
+  }
+  if (_cachedOutputBytes == null || _cachedOutputLen != needed) {
+    _cachedOutputBytes = Uint8List(needed * Float32List.bytesPerElement);
+    _cachedOutputFloats = _cachedOutputBytes!.buffer.asFloat32List();
+    _cachedOutputLen = needed;
+  }
+}
+
+List<Map<String, dynamic>> _parseFlat({
+  required Float32List flat,
+  required LetterboxResult letterbox,
+  required double confidenceThreshold,
+  required double iouThreshold,
+  required int maxDetections,
+}) {
+  final labels = _initLabels!;
+  final inputSize = _initInputSize;
+  final shape = _initOutputShape;
+  if (shape.length < 3) return [];
+
+  final int dim0 = shape[1];
+  final int dim1 = shape[2];
+  final bool isTransposed = dim0 < dim1;
+  final int numBoxes = isTransposed ? dim1 : dim0;
+  final int numChannels = isTransposed ? dim0 : dim1;
+  final int classOffset = AppConstants.yoloHasObjectness ? 5 : 4;
+  final int avail = (numChannels - classOffset).clamp(0, labels.length);
+  if (avail <= 0) return [];
+
+  double at(int b, int c) =>
+      isTransposed ? flat[c * numBoxes + b] : flat[b * numChannels + c];
+
+  final rawBoxes = <_RawBox>[];
+  for (int i = 0; i < numBoxes; i++) {
+    final cx = at(i, 0);
+    final cy = at(i, 1);
+    final bw = at(i, 2);
+    final bh = at(i, 3);
+    if (bw <= 0 || bh <= 0) continue;
+
+    final obj = AppConstants.yoloHasObjectness ? _sig(at(i, 4)) : 1.0;
+    if (obj < confidenceThreshold) continue;
+
+    int bestId = -1;
+    double bestScore = 0;
+    for (int c = 0; c < avail; c++) {
+      final s = _sig(at(i, classOffset + c));
+      if (s > bestScore) {
+        bestScore = s;
+        bestId = c;
+      }
+    }
+    if (bestId < 0) continue;
+
+    final score = obj * bestScore;
+    if (score < confidenceThreshold) continue;
+
+    final box = ImageConverter.unLetterboxBox(
+      cx: cx,
+      cy: cy,
+      bw: bw,
+      bh: bh,
+      padLeft: letterbox.padLeft,
+      padTop: letterbox.padTop,
+      scale: letterbox.scale,
+      origWidth: letterbox.origWidth,
+      origHeight: letterbox.origHeight,
+      inputSize: inputSize,
+    );
+    if (box.width <= 0 || box.height <= 0) continue;
+
+    rawBoxes.add(_RawBox(
+      left: box.left,
+      top: box.top,
+      width: box.width,
+      height: box.height,
+      score: score,
+      classId: bestId,
+    ));
+  }
+
+  if (rawBoxes.length > 100) {
+    rawBoxes.sort((a, b) => b.score.compareTo(a.score));
+    rawBoxes.removeRange(100, rawBoxes.length);
+  }
+
+  return _nms(rawBoxes, iouThreshold)
+      .take(maxDetections)
+      .map((b) => <String, dynamic>{
+            'label': b.classId < labels.length
+                ? labels[b.classId]
+                : 'class_${b.classId}',
+            'confidence': b.score,
+            'left': b.left,
+            'top': b.top,
+            'width': b.width,
+            'height': b.height,
+          })
+      .toList();
+}
+
+double _sig(double v) =>
+    AppConstants.yoloOutputLogits ? 1.0 / (1.0 + exp(-v)) : v;
+
+List<_RawBox> _nms(List<_RawBox> boxes, double iouThreshold) {
+  boxes.sort((a, b) => b.score.compareTo(a.score));
+  final result = <_RawBox>[];
+  for (final box in boxes) {
+    // Use class-agnostic NMS so one physical object does not survive as
+    // multiple boxes when the model oscillates between nearby labels.
+    if (result.every((kept) => _iou(box, kept) <= iouThreshold)) {
+      result.add(box);
+    }
+  }
+  return result;
+}
+
+double _iou(_RawBox a, _RawBox b) {
+  final iL = max(a.left, b.left);
+  final iT = max(a.top, b.top);
+  final iR = min(a.left + a.width, b.left + b.width);
+  final iB = min(a.top + a.height, b.top + b.height);
+  if (iR <= iL || iB <= iT) return 0;
+  final inter = (iR - iL) * (iB - iT);
+  return inter / (a.width * a.height + b.width * b.height - inter);
+}
+
+class _RawBox {
+  final double left, top, width, height, score;
+  final int classId;
+  const _RawBox({
+    required this.left,
+    required this.top,
+    required this.width,
+    required this.height,
+    required this.score,
+    required this.classId,
+  });
+}
+
+// ── Message classes (all must be const-constructable for isolate safety) ────
+
+class _IsolateInitMsg {
+  final List<String> labels;
+  final int inputSize;
+  final TransferableTypedData modelBytes;
+  final SendPort ackPort;
+  final bool allowNnapi;
+  const _IsolateInitMsg({
+    required this.labels,
+    required this.inputSize,
+    required this.modelBytes,
+    required this.ackPort,
+    required this.allowNnapi,
+  });
+}
+
+class _IsolateInitAck {
+  final List<int> outputShape;
+  final String? error;
+  const _IsolateInitAck({required this.outputShape, this.error});
+}
+
+class _WarmupProbeMsg {
+  final SendPort replyPort;
+  final TransferableTypedData dummyTensor;
+  final int inputSize;
+  const _WarmupProbeMsg({
+    required this.replyPort,
+    required this.dummyTensor,
+    required this.inputSize,
+  });
+}
+
+class _IsolateShutdown {
+  final SendPort replyPort;
+  const _IsolateShutdown({required this.replyPort});
+}
+
+class _InferenceJob {
+  final SendPort replyPort;
+  final List<TransferableTypedData> planeBytes;
+  final List<int> planeRowStrides;
+  final List<int> planePixelStrides;
+  final int imageWidth, imageHeight, rotationDegrees;
+  final double confidenceThreshold, iouThreshold;
+  final int maxDetections;
+  const _InferenceJob({
+    required this.replyPort,
+    required this.planeBytes,
+    required this.planeRowStrides,
+    required this.planePixelStrides,
+    required this.imageWidth,
+    required this.imageHeight,
+    required this.rotationDegrees,
+    required this.confidenceThreshold,
+    required this.iouThreshold,
+    required this.maxDetections,
+  });
 }

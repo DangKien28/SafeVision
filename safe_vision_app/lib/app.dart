@@ -20,7 +20,7 @@ class SafeVisionApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
 
       // High-contrast dark theme required by accessibility specification.
-      theme: AppTheme.darkTheme,
+      theme: AppTheme.dark,
 
       initialRoute: SplashPage.routeName,
       routes: {

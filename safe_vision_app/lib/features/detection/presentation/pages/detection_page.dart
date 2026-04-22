@@ -1,49 +1,24 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../../core/constants/app_constants.dart';
 import '../../../../core/services/camera_service.dart';
 import '../../../../core/utils/voice_helper.dart';
 import '../../../../injection_container.dart';
-import '../../domain/entities/detection_object.dart';
-import '../../domain/entities/tracked_detection.dart';
-import '../bloc/detection_bloc.dart';
-import '../bloc/detection_event.dart';
-import '../bloc/detection_state.dart';
-import '../widgets/object_indicator_painter.dart';
-import '../widgets/confidence_score_display.dart';
-import '../widgets/detection_control_bar.dart';
+import '../../../settings/domain/repositories/settings_repository.dart';
 import '../../../tts/presentation/bloc/tts_bloc.dart';
 import '../../../tts/presentation/bloc/tts_event.dart';
 import '../../../tts/presentation/widgets/voice_feedback_indicator.dart';
-import '../../../settings/domain/repositories/settings_repository.dart';
+import '../../domain/entities/detection_object.dart';
+import '../bloc/detection_bloc.dart';
+import '../bloc/detection_event.dart';
+import '../bloc/detection_state.dart';
+import '../widgets/confidence_score_display.dart';
+import '../widgets/detection_control_bar.dart';
+import '../widgets/object_indicator_painter.dart';
 
-/// Root page for the object-detection camera feed.
-///
-/// ## Design
-///
-/// Both [DetectionBloc] and [TtsBloc] are created directly in [initState]
-/// rather than through a [MultiBlocProvider] factory.  This is necessary
-/// because [DetectionBloc] requires an [onWarning] callback that calls
-/// [TtsBloc.add] — so both instances must exist at the same time before
-/// the tree is built.
-///
-/// Using a [MultiBlocProvider] factory would create the BLoCs lazily during
-/// [build], which means [TtsBloc] may not yet exist when [DetectionBloc]
-/// fires its first warning.
-///
-/// ## Lifecycle
-///
-/// 1. [initState] — create both BLoCs, dispatch [DetectionStarted].
-/// 2. [_onDetectionState] — when [DetectionModelReady], start camera.
-/// 3. [didChangeAppLifecycleState] — pause/resume on app background.
-/// 4. [dispose] — stop camera stream, close both BLoCs.
-///    [CameraService.dispose] returns a future; teardown starts immediately
-///    and continues asynchronously (invoked via `unawaited` in this page's
-///    dispose override).
 class DetectionPage extends StatefulWidget {
   const DetectionPage({
     super.key,
@@ -51,6 +26,7 @@ class DetectionPage extends StatefulWidget {
   });
 
   static const routeName = '/detection';
+
   final SettingsRepository settingsRepository;
 
   @override
@@ -59,34 +35,21 @@ class DetectionPage extends StatefulWidget {
 
 class _DetectionPageState extends State<DetectionPage>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
-  /// Fixed width (logical pixels) for [ConfidenceScoreDisplay].
-  ///
-  /// Without this bound, [LinearProgressIndicator] can receive unconstrained
-  /// horizontal constraints and trigger RenderBox layout exceptions.
   static const double _kConfidencePanelWidthPx = 220;
 
-  // ── Services ──────────────────────────────────────────────────────────────
-
   final CameraService _camera = sl<CameraService>();
-
-  // ── BLoCs (owned by this State — not by a BlocProvider factory) ──────────
 
   late final TtsBloc _ttsBloc;
   late final DetectionBloc _detectionBloc;
   late final SettingsRepository _settingsRepository;
   late final AnimationController _pulseController;
 
-  // ── Rendering state ───────────────────────────────────────────────────────
-
-  List<SmoothedBox> _boxes = [];
+  List<SmoothedBox> _boxes = const <SmoothedBox>[];
   int _boxVersion = 0;
   bool _cameraReady = false;
-  String? _errorMessage;
   bool _isDisposed = false;
   bool _showConfidencePanel = true;
-  bool _basicDisplayModeEnabled = AppConstants.basicModeDefaultEnabled;
-
-  // ── Lifecycle ─────────────────────────────────────────────────────────────
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -115,6 +78,7 @@ class _DetectionPageState extends State<DetectionPage>
     switch (state) {
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
         unawaited(
           _camera.stopImageStream().catchError((Object e) {
             debugPrint('[DetectionPage] stop stream on lifecycle error: $e');
@@ -124,15 +88,15 @@ class _DetectionPageState extends State<DetectionPage>
         break;
       case AppLifecycleState.resumed:
         if (_cameraReady) {
-          unawaited(
-            _camera.startImageStream(onFrame: _onFrame).catchError((Object e) {
-              debugPrint('[DetectionPage] stream resume error: $e');
-            }),
-          );
+          try {
+            _camera.startImageStream(onFrame: _onFrame);
+          } catch (e) {
+            debugPrint('[DetectionPage] stream resume error: $e');
+          }
         }
         _detectionBloc.add(const DetectionStarted());
         break;
-      default:
+      case AppLifecycleState.inactive:
         break;
     }
   }
@@ -148,29 +112,64 @@ class _DetectionPageState extends State<DetectionPage>
       }),
     );
 
-    _detectionBloc.close();
-    _ttsBloc.close();
+    unawaited(_detectionBloc.close());
+    unawaited(_ttsBloc.close());
 
     unawaited(
       _camera.dispose().catchError((Object e) {
         debugPrint('[DetectionPage] camera dispose error: $e');
       }),
     );
+
     _pulseController.dispose();
     ObjectIndicatorPainter.clearCache();
-
     super.dispose();
   }
 
-  // ── Camera ────────────────────────────────────────────────────────────────
+  Future<void> _bootstrapDetection() async {
+    try {
+      await _loadDisplaySettings();
+      if (_isDisposed || _detectionBloc.isClosed) return;
+      _detectionBloc.add(const DetectionStarted());
+    } catch (e) {
+      debugPrint('[DetectionPage] bootstrap error: $e');
+      if (!mounted) return;
+      setState(() {
+        _errorMessage =
+            'Kh\u00f4ng th\u1ec3 kh\u1edfi \u0111\u1ed9ng nh\u1eadn di\u1ec7n. Vui l\u00f2ng th\u1eed l\u1ea1i.';
+      });
+    }
+  }
+
+  Future<void> _loadDisplaySettings() async {
+    try {
+      final show = await _settingsRepository.getShowConfidencePanel();
+      if (!mounted) return;
+      setState(() {
+        _showConfidencePanel = show;
+      });
+    } catch (e) {
+      debugPrint('[DetectionPage] load display settings error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Kh\u00f4ng th\u1ec3 t\u1ea3i c\u00e0i \u0111\u1eb7t hi\u1ec3n th\u1ecb.',
+          ),
+        ),
+      );
+    }
+  }
 
   Future<void> _startCamera() async {
     try {
       await _camera.initialize();
-      await _camera.startImageStream(onFrame: _onFrame);
-      if (mounted) setState(() => _cameraReady = true);
+      _camera.startImageStream(onFrame: _onFrame);
+      if (!mounted) return;
+      setState(() => _cameraReady = true);
     } catch (e) {
-      if (mounted) setState(() => _errorMessage = e.toString());
+      if (!mounted) return;
+      setState(() => _errorMessage = e.toString());
     }
   }
 
@@ -181,87 +180,9 @@ class _DetectionPageState extends State<DetectionPage>
     }
 
     _detectionBloc.add(
-      DetectionFrameReceived(frame, _sensorRotation, onDone),
+      DetectionFrameReceived(frame, _camera.rotationDegrees, onDone),
     );
   }
-
-  /// Portrait-mode Android sensor rotation.
-  ///
-  /// In production this should read from the [CameraController.description]
-  /// sensor orientation.  The conventional default for rear-facing portrait is
-  /// 90°.
-  int get _sensorRotation => _camera.rotationDegrees;
-
-  Future<void> _bootstrapDetection() async {
-    try {
-      await _loadDisplaySettings();
-      if (_isDisposed || _detectionBloc.isClosed) return;
-      _detectionBloc.add(const DetectionStarted());
-    } catch (e) {
-      debugPrint('[DetectionPage] bootstrap error: $e');
-      if (mounted) {
-        setState(() {
-          _errorMessage = 'Không thể khởi động nhận diện. Vui lòng thử lại.';
-        });
-      }
-    }
-  }
-
-  Future<void> _loadDisplaySettings() async {
-    try {
-      final show = await _settingsRepository.getShowConfidencePanel();
-      final basicMode = await _settingsRepository.getBasicDisplayModeEnabled();
-      if (!mounted) return;
-      setState(() {
-        _showConfidencePanel = show;
-        _basicDisplayModeEnabled = basicMode;
-      });
-    } catch (e) {
-      debugPrint('[DetectionPage] load display settings error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Không thể tải cài đặt hiển thị.'),
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _openSettings() async {
-    try {
-      await Navigator.of(context).pushNamed('/settings');
-      await _loadDisplaySettings();
-    } catch (e) {
-      debugPrint('[DetectionPage] open settings error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Không thể mở cài đặt. Vui lòng thử lại.')),
-        );
-      }
-    }
-  }
-
-  Future<void> _switchCamera() async {
-    if (!_cameraReady) return;
-    try {
-      await _camera.stopImageStream();
-      await _camera.switchCamera();
-      await _camera.startImageStream(onFrame: _onFrame);
-      if (mounted) setState(() {});
-    } catch (e) {
-      debugPrint('[DetectionPage] switch camera error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Không thể chuyển camera. Vui lòng thử lại.')),
-        );
-      }
-    }
-  }
-
-  // ── Warning callback ──────────────────────────────────────────────────────
 
   void _onWarning({
     required String text,
@@ -277,78 +198,38 @@ class _DetectionPageState extends State<DetectionPage>
     );
   }
 
-  // ── BLoC state handler ────────────────────────────────────────────────────
-
   void _onDetectionState(BuildContext context, DetectionState state) {
     if (state is DetectionModelReady && !_cameraReady) {
-      _startCamera();
+      unawaited(_startCamera());
     }
 
     if (state is DetectionSuccess) {
-      final displayTracks = _filterDisplayTracks(state.trackedDetections);
-      final boxes = displayTracks
-          .map(SmoothedBox.fromTrackedDetection)
+      final boxes = state.detections
+          .map(SmoothedBox.fromDetectionObject)
           .toList(growable: false);
-      if (mounted) {
-        setState(() {
-          _boxes = boxes;
-          _boxVersion++;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _boxes = boxes;
+        _boxVersion++;
+      });
     }
 
     if (state is DetectionFailure) {
-      if (mounted) setState(() => _errorMessage = state.message);
-      _ttsBloc.add(TtsSpeak(VoiceHelper.systemError(), immediate: true));
+      if (mounted) {
+        setState(() => _errorMessage = state.message);
+      }
+      _ttsBloc.add(
+        TtsSpeak(
+          VoiceHelper.systemError(),
+          immediate: true,
+        ),
+      );
     }
   }
-
-  /// Filters/sorts tracked detections for on-screen indicators in Basic mode.
-  ///
-  /// Basic mode keeps only visible detections and removes noisy points by
-  /// requiring either: (1) dangerous area, or (2) minimum consecutive stable
-  /// frames and minimum area. Remaining tracks are prioritized by danger,
-  /// confidence, then area, and capped to a small beginner-friendly count.
-  List<TrackedDetection> _filterDisplayTracks(List<TrackedDetection> tracks) {
-    if (!_basicDisplayModeEnabled) return tracks;
-
-    final filtered = tracks
-        .where((track) => track.isVisible)
-        .where(_shouldDisplayTrackInBasicMode)
-        .toList(growable: false)
-      ..sort((a, b) {
-        final dangerOrder = (b.detection.isDangerous ? 1 : 0) -
-            (a.detection.isDangerous ? 1 : 0);
-        if (dangerOrder != 0) return dangerOrder;
-        final confidenceOrder =
-            b.detection.confidence.compareTo(a.detection.confidence);
-        if (confidenceOrder != 0) return confidenceOrder;
-        return b.detection.boundingBox.area
-            .compareTo(a.detection.boundingBox.area);
-      });
-
-    if (filtered.length <= AppConstants.basicModeMaxIndicators) {
-      return filtered;
-    }
-    return filtered.take(AppConstants.basicModeMaxIndicators).toList();
-  }
-
-  bool _shouldDisplayTrackInBasicMode(TrackedDetection track) {
-    final area = track.detection.boundingBox.area;
-    if (area >= AppConstants.dangerousAreaThreshold) return true;
-    if (track.consecutiveVisibleFrames <
-        AppConstants.basicModeMinConsecutiveFrames) {
-      return false;
-    }
-    return area >= AppConstants.basicModeMinRenderableBoxArea;
-  }
-
-  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     return MultiBlocProvider(
-      // Provide the already-created instances so child widgets can read them.
       providers: [
         BlocProvider<DetectionBloc>.value(value: _detectionBloc),
         BlocProvider<TtsBloc>.value(value: _ttsBloc),
@@ -357,13 +238,13 @@ class _DetectionPageState extends State<DetectionPage>
         backgroundColor: Colors.black,
         body: BlocListener<DetectionBloc, DetectionState>(
           listener: _onDetectionState,
-          child: _buildBody(),
+          child: _buildBody(context),
         ),
       ),
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(BuildContext context) {
     if (_errorMessage != null) {
       return _ErrorOverlay(
         message: _errorMessage!,
@@ -381,10 +262,7 @@ class _DetectionPageState extends State<DetectionPage>
     return Stack(
       fit: StackFit.expand,
       children: [
-        // ── Camera preview ──────────────────────────────────────────────────
-        _buildCameraPreview(),
-
-        // ── Bounding box overlay ────────────────────────────────────────────
+        _buildCameraPreview(context),
         AnimatedBuilder(
           animation: _pulseController,
           builder: (_, __) => CustomPaint(
@@ -396,7 +274,6 @@ class _DetectionPageState extends State<DetectionPage>
             ),
           ),
         ),
-
         const Align(
           alignment: Alignment.topCenter,
           child: SafeArea(
@@ -406,8 +283,6 @@ class _DetectionPageState extends State<DetectionPage>
             ),
           ),
         ),
-
-        // ── Confidence score panel ──────────────────────────────────────────
         if (_showConfidencePanel)
           Align(
             alignment: Alignment.topRight,
@@ -419,14 +294,12 @@ class _DetectionPageState extends State<DetectionPage>
                   builder: (_, state) => ConfidenceScoreDisplay(
                     detections: state is DetectionSuccess
                         ? state.detections
-                        : <DetectionObject>[],
+                        : const <DetectionObject>[],
                   ),
                 ),
               ),
             ),
           ),
-
-        // ── Bottom control bar ──────────────────────────────────────────────
         Align(
           alignment: Alignment.bottomCenter,
           child: DetectionControlBar(
@@ -434,15 +307,13 @@ class _DetectionPageState extends State<DetectionPage>
               _detectionBloc.add(const DetectionStopped());
               Navigator.of(context).pop();
             },
-            onSettings: () => unawaited(_openSettings()),
-            onSwitchCamera: () => unawaited(_switchCamera()),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildCameraPreview() {
+  Widget _buildCameraPreview(BuildContext context) {
     final controller = _camera.controller;
     if (controller == null || !controller.value.isInitialized) {
       return const ColoredBox(color: Colors.black);
@@ -470,10 +341,9 @@ class _DetectionPageState extends State<DetectionPage>
   }
 }
 
-// ── Loading overlay ───────────────────────────────────────────────────────────
-
 class _LoadingOverlay extends StatelessWidget {
   const _LoadingOverlay({required this.bloc});
+
   final DetectionBloc bloc;
 
   @override
@@ -517,8 +387,8 @@ class _LoadingOverlay extends StatelessWidget {
               const SizedBox(height: 18),
               Text(
                 state is DetectionLoading
-                    ? 'Đang tải mô hình AI...'
-                    : 'Đang khởi động camera...',
+                    ? '\u0110ang t\u1ea3i m\u00f4 h\u00ecnh AI...'
+                    : '\u0110ang kh\u1edfi \u0111\u1ed9ng camera...',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyLarge?.copyWith(
                   color: theme.colorScheme.primary,
@@ -532,8 +402,6 @@ class _LoadingOverlay extends StatelessWidget {
     );
   }
 }
-
-// ── Error overlay ─────────────────────────────────────────────────────────────
 
 class _ErrorOverlay extends StatelessWidget {
   const _ErrorOverlay({
@@ -566,7 +434,7 @@ class _ErrorOverlay extends StatelessWidget {
               child: ElevatedButton.icon(
                 onPressed: onRetry,
                 icon: const Icon(Icons.refresh),
-                label: const Text('Thử lại'),
+                label: const Text('Th\u1eed l\u1ea1i'),
               ),
             ),
             const SizedBox(height: 12),
@@ -576,57 +444,7 @@ class _ErrorOverlay extends StatelessWidget {
               child: TextButton.icon(
                 onPressed: () => Navigator.of(context).pop(),
                 icon: const Icon(Icons.arrow_back),
-                label: const Text('Quay lại'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ── Bottom control bar ────────────────────────────────────────────────────────
-
-// ignore: unused_element
-class _ControlBar extends StatelessWidget {
-  const _ControlBar({
-    required this.onStop,
-    required this.onSettings,
-    required this.onSwitchCamera,
-  });
-
-  final VoidCallback onStop;
-  final VoidCallback onSettings;
-  final VoidCallback onSwitchCamera;
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Container(
-        height: 88,
-        color: Colors.black.withValues(alpha: 0.55),
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            IconButton(
-              tooltip: 'Cài đặt',
-              icon: const Icon(Icons.settings, size: 32, color: Colors.white),
-              onPressed: onSettings,
-            ),
-            IconButton(
-              tooltip: 'Đổi camera',
-              icon: const Icon(Icons.cameraswitch_outlined,
-                  size: 32, color: Colors.white),
-              onPressed: onSwitchCamera,
-            ),
-            SizedBox(
-              height: 80,
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.stop_circle_outlined, size: 28),
-                label: const Text('Dừng'),
-                onPressed: onStop,
+                label: const Text('Quay l\u1ea1i'),
               ),
             ),
           ],

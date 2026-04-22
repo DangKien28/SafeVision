@@ -7,7 +7,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
-import 'package:safe_vision_app/core/models/camera_frame.dart';
+import 'package:safe_vision_app/core/services/camera_service.dart'
+    show CameraFrame;
 import 'package:safe_vision_app/features/detection/data/datasources/detection_local_datasource.dart';
 
 class MockDetectionDatasource extends Mock
@@ -89,7 +90,7 @@ void main() {
     test('isolateBusy is reset after successful inference', () async {
       datasource.resultFactory = () => [
             {
-              'label': 'nguoi_di_bo',
+              'label': 'person',
               'confidence': 0.85,
               'left': 0.1,
               'top': 0.1,
@@ -126,7 +127,7 @@ void main() {
       datasource.shouldThrow = false;
       datasource.resultFactory = () => [
             {
-              'label': 'xe',
+              'label': 'bicycle',
               'confidence': 0.7,
               'left': 0.2,
               'top': 0.2,
@@ -140,7 +141,7 @@ void main() {
 
       expect(results, isNotEmpty,
           reason: 'After exception, subsequent inference must still run.');
-      expect(results.first['label'], 'xe');
+      expect(results.first['label'], 'bicycle');
       expect(datasource.inferenceCallCount, equals(2));
     });
 
@@ -186,7 +187,7 @@ void main() {
       await datasource.loadModel();
       datasource.resultFactory = () => [
             {
-              'label': 'xe',
+              'label': 'car',
               'confidence': 0.9,
               'left': 0.0,
               'top': 0.0,
@@ -199,7 +200,7 @@ void main() {
           await datasource.runInference(fakeCameraFrame(), rotationDegrees: 90);
 
       expect(result.length, equals(1));
-      expect(result.first['label'], 'xe');
+      expect(result.first['label'], 'car');
     });
 
     test('after closeModel, inference returns []', () async {

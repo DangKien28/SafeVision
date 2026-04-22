@@ -1,4 +1,4 @@
-import '../../../../core/models/camera_frame.dart';
+import '../../../../core/services/camera_service.dart' show CameraFrame;
 import '../entities/detection_object.dart';
 
 abstract class DetectionRepository {

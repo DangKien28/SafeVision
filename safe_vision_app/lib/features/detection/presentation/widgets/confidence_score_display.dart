@@ -1,124 +1,107 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
-
-import '../../../../config/theme/app_colors.dart';
 import '../../domain/entities/detection_object.dart';
 
-/// Displays a confidence score panel for detected objects.
-///
-/// Shows at most [maxItems] objects, each with:
-///   - Vietnamese display label
-///   - Confidence percentage
-///   - [LinearProgressIndicator] bar
-///
-/// Renders a zero-size [SizedBox] when [detections] is empty so the camera
-/// feed is not obscured.
 class ConfidenceScoreDisplay extends StatelessWidget {
+  final List<DetectionObject> detections;
+  final int maxItems;
+
   const ConfidenceScoreDisplay({
     super.key,
     required this.detections,
     this.maxItems = 5,
   });
 
-  final List<DetectionObject> detections;
-  final int maxItems;
-
   @override
   Widget build(BuildContext context) {
     if (detections.isEmpty) return const SizedBox.shrink();
 
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final items = detections.take(maxItems).toList();
+    final sorted = [...detections]
+      ..sort((a, b) => b.confidence.compareTo(a.confidence));
+    final items = sorted.take(maxItems).toList();
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 9, sigmaY: 9),
-        child: Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: colorScheme.surface.withValues(alpha: 0.66),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: colorScheme.primary.withValues(alpha: 0.2),
+    return Container(
+      margin: const EdgeInsets.all(10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.60),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Phát hiện ${detections.length} vật thể',
+            style: const TextStyle(
+              color: Colors.white60,
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
             ),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Phát hiện: ${detections.length}',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: colorScheme.onSurface,
-                ),
-              ),
-              const SizedBox(height: 6),
-              ...items.map((d) => _DetectionRow(detection: d)),
-            ],
-          ),
-        ),
+          const SizedBox(height: 6),
+          ...items.map((d) => _DetectionRow(detection: d)),
+        ],
       ),
     );
   }
 }
 
 class _DetectionRow extends StatelessWidget {
-  const _DetectionRow({required this.detection});
-
   final DetectionObject detection;
+  const _DetectionRow({required this.detection});
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final label = detection.label;
-    final confidence = detection.confidence;
-    final pct = (confidence * 100).round();
-    final isDanger = detection.isDangerous;
+    final pct = detection.confidence.clamp(0.0, 1.0);
+    final color = pct > 0.75
+        ? Colors.greenAccent
+        : pct > 0.5
+            ? Colors.orangeAccent
+            : Colors.redAccent;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Flexible(
-                child: Text(
-                  label,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: isDanger
-                        ? AppColors.boundingBoxDanger
-                        : AppColors.boundingBoxDefault,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-              Text(
-                '$pct%',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.75),
-                  fontSize: 12,
-                ),
-              ),
-            ],
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
-          const SizedBox(height: 2),
-          LinearProgressIndicator(
-            value: confidence.clamp(0.0, 1.0),
-            backgroundColor:
-                theme.colorScheme.onSurface.withValues(alpha: 0.15),
-            valueColor: AlwaysStoppedAnimation<Color>(
-              isDanger
-                  ? AppColors.boundingBoxDanger
-                  : AppColors.boundingBoxDefault,
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              detection.label,
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+              overflow: TextOverflow.ellipsis,
             ),
-            minHeight: 4,
+          ),
+          const SizedBox(width: 6),
+          SizedBox(
+            width: 72,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: pct,
+                backgroundColor: Colors.white12,
+                valueColor: AlwaysStoppedAnimation<Color>(color),
+                minHeight: 6,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          SizedBox(
+            width: 36,
+            child: Text(
+              '${(pct * 100).toStringAsFixed(0)}%',
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.right,
+            ),
           ),
         ],
       ),

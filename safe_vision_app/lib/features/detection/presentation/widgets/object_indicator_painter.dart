@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../../../config/theme/app_theme.dart';
+import '../../../../config/theme/app_colors.dart';
 import '../../../../core/constants/app_constants.dart';
 import '../../domain/entities/tracked_detection.dart';
 
@@ -29,6 +29,20 @@ class SmoothedBox {
       label: td.detection.label,
       trackId: td.trackId,
       missedFrames: td.missedFrames,
+    );
+  }
+
+  /// Create a SmoothedBox from a plain DetectionObject-like instance.
+  factory SmoothedBox.fromDetectionObject(dynamic detection) {
+    final box = detection.boundingBox;
+    return SmoothedBox(
+      left: box.left,
+      top: box.top,
+      width: box.width,
+      height: box.height,
+      label: detection.label,
+      trackId: -1,
+      missedFrames: 0,
     );
   }
 
@@ -283,7 +297,9 @@ class ObjectIndicatorPainter extends CustomPainter {
   }
 
   Color _indicatorColor(bool isDangerous) =>
-      isDangerous ? AppTheme.warningColor : AppTheme.primaryColor;
+      isDangerous ? AppColors.warning : AppColors.primary;
+
+  
 }
 
 class _RenderablePoint {
