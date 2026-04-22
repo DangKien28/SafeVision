@@ -8,6 +8,7 @@ import 'features/detection/data/datasources/detection_local_datasource_impl.dart
 import 'features/detection/data/repositories/detection_repository_impl.dart';
 import 'features/detection/domain/repositories/detection_repository.dart';
 import 'features/detection/domain/services/object_tracker.dart';
+import 'features/detection/domain/services/warning_policy.dart';
 import 'features/detection/domain/usecases/load_model_usecase.dart';
 import 'features/detection/domain/usecases/close_model_usecase.dart';
 import 'features/detection/domain/usecases/detection_object_from_frame.dart';
@@ -79,6 +80,7 @@ Future<void> init() async {
   sl.registerSingleton(LoadModelUsecase(sl<DetectionRepository>()));
   sl.registerSingleton(CloseModelUsecase(sl<DetectionRepository>()));
   sl.registerSingleton(DetectionObjectFromFrame(sl<DetectionRepository>()));
+  sl.registerSingleton(WarningPolicy());
 
   // A lazy singleton prevents multiple DetectionBloc instances from sharing
   // one datasource singleton and trying to spawn competing isolates on the
@@ -92,6 +94,7 @@ Future<void> init() async {
         detectFromFrame: sl<DetectionObjectFromFrame>(),
         warningDispatcher: sl<WarningDispatcher>(),
         objectTracker: sl<ObjectTracker>(),
+        warningPolicy: sl<WarningPolicy>(),
       ));
 
   // Camera

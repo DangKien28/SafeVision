@@ -10,14 +10,14 @@ void main() {
     });
 
     test('detection thresholds are sane', () {
-      expect(AppConstants.confidenceThreshold, 0.30);
+      expect(AppConstants.confidenceThreshold, 0.50);
       expect(AppConstants.iouThreshold, 0.45);
       expect(AppConstants.maxDetections, 10);
       expect(AppConstants.maxClassesPerBox, 2);
     });
 
     test('runtime tuning values are configured', () {
-      expect(AppConstants.inputSize, 640);
+      expect(AppConstants.inputSize, 320);
       expect(AppConstants.activeInferenceFps, 6);
       expect(AppConstants.busyFrameReplacementMinIntervalMs, 180);
       expect(AppConstants.inferenceThreads, 4);
@@ -33,7 +33,7 @@ void main() {
 
     test('tracking and rendering guards are sane', () {
       expect(AppConstants.trackingSmoothingAlpha, 0.65);
-      expect(AppConstants.trackingMaxAgeMs, 400);
+      expect(AppConstants.trackingMaxAgeMs, 1200);
       expect(AppConstants.dangerousAreaThreshold, 0.10);
       expect(AppConstants.minRenderableBoxArea, greaterThan(0));
       expect(AppConstants.maxRenderableAspectRatio, greaterThan(1));

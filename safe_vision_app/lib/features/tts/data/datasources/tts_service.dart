@@ -16,6 +16,7 @@ class TtsService {
   bool _isSpeaking = false;
   final List<String> _queue = [];
   String _activeText = '';
+  DateTime? _activeStartedAt;
 
   /// LinkedHashMap preserves insertion order so the oldest entry is always
   /// `_lastSpoken.entries.first` — O(1) LRU eviction without sorting.
@@ -49,6 +50,7 @@ class TtsService {
 
     _tts.setStartHandler(() {
       _isSpeaking = true;
+      _activeStartedAt = DateTime.now();
       _playbackUpdates.add(
         TtsPlaybackUpdate(
           status: TtsPlaybackStatus.started,
@@ -59,6 +61,7 @@ class TtsService {
     _tts.setCompletionHandler(() {
       _isSpeaking = false;
       _activeText = '';
+      _activeStartedAt = null;
       if (_queue.isEmpty) {
         _playbackUpdates.add(
           const TtsPlaybackUpdate(status: TtsPlaybackStatus.stopped),
@@ -69,6 +72,7 @@ class TtsService {
     _tts.setCancelHandler(() {
       _isSpeaking = false;
       _activeText = '';
+      _activeStartedAt = null;
       _queue.clear();
       _playbackUpdates.add(
         const TtsPlaybackUpdate(status: TtsPlaybackStatus.stopped),
@@ -77,6 +81,7 @@ class TtsService {
     _tts.setErrorHandler((message) {
       _isSpeaking = false;
       _activeText = '';
+      _activeStartedAt = null;
       _playbackUpdates.add(
         TtsPlaybackUpdate(
           status: TtsPlaybackStatus.error,
@@ -112,6 +117,10 @@ class TtsService {
     final now = DateTime.now();
     _pruneLastSpoken(now);
 
+    if (_isSpeaking && _activeText == text) {
+      return false;
+    }
+
     final last = _lastSpoken[text];
     if (last != null &&
         now.difference(last).inMilliseconds < AppConstants.ttsCooldownMs) {
@@ -121,9 +130,21 @@ class TtsService {
     _lastSpoken.remove(text);
     _lastSpoken[text] = now;
 
+    final activeStartedAt = _activeStartedAt;
+    if (_isSpeaking &&
+        _activeText.isNotEmpty &&
+        _activeText != text &&
+        activeStartedAt != null &&
+        now.difference(activeStartedAt).inMilliseconds <
+            AppConstants.ttsMinInterruptMs) {
+      _enqueue(text, prioritize: true);
+      return true;
+    }
+
     await _tts.stop();
     _queue.clear();
     _isSpeaking = false;
+    _activeStartedAt = null;
     await _speak(text);
     return true;
   }
@@ -133,6 +154,7 @@ class TtsService {
     _lastSpoken.clear();
     _lastPruneAt = null;
     _activeText = '';
+    _activeStartedAt = null;
     await _tts.stop();
     _isSpeaking = false;
   }
@@ -141,6 +163,7 @@ class TtsService {
     await _tts.pause();
     _isSpeaking = false;
     _activeText = '';
+    _activeStartedAt = null;
     _playbackUpdates.add(
       const TtsPlaybackUpdate(status: TtsPlaybackStatus.paused),
     );
@@ -153,6 +176,7 @@ class TtsService {
     _lastSpoken.clear();
     _lastPruneAt = null;
     _activeText = '';
+    _activeStartedAt = null;
     await _tts.stop();
     _isSpeaking = false;
     await _playbackUpdates.close();
@@ -190,8 +214,13 @@ class TtsService {
     }
   }
 
-  void _enqueue(String text) {
-    if (!_queue.contains(text)) _queue.add(text);
+  void _enqueue(String text, {bool prioritize = false}) {
+    if (_queue.contains(text)) return;
+    if (prioritize) {
+      _queue.insert(0, text);
+    } else {
+      _queue.add(text);
+    }
     if (!_isSpeaking) _processQueue();
   }
 
@@ -204,12 +233,14 @@ class TtsService {
     if (text.trim().isEmpty) return;
     _activeText = text;
     _isSpeaking = true;
+    _activeStartedAt = DateTime.now();
     try {
       await _tts.speak(text);
     } catch (e) {
       debugPrint('[TtsService] speak error: $e');
       _isSpeaking = false;
       _activeText = '';
+      _activeStartedAt = null;
       _playbackUpdates.add(
         TtsPlaybackUpdate(
           status: TtsPlaybackStatus.error,

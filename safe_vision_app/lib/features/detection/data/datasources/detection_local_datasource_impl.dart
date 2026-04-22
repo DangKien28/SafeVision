@@ -194,10 +194,7 @@ class DetectionLocalDatasourceImpl implements DetectionLocalDatasource {
     ReceivePort? replyPort;
 
     try {
-      final planeBytes = <TransferableTypedData>[
-        for (final plane in frame.planes)
-          TransferableTypedData.fromList([plane]),
-      ];
+      final planeBytes = frame.detachPlaneData();
 
       replyPort = ReceivePort();
       _isolateSendPort!.send(

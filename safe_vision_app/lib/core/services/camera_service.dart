@@ -1,16 +1,18 @@
 import 'dart:async';
+import 'dart:isolate';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import '../models/camera_frame.dart';
 import '../constants/app_constants.dart';
 import '../error/exceptions.dart' as ex;
+import '../models/camera_frame.dart';
 import '../utils/perf_monitor.dart';
 export '../models/camera_frame.dart';
 
 class CameraService {
+  static const ResolutionPreset _streamResolutionPreset = ResolutionPreset.low;
   CameraController? _controller;
   List<CameraDescription> _cameras = const [];
   int _currentIndex = 0;
@@ -94,7 +96,7 @@ class CameraService {
 
     final controller = CameraController(
       camera,
-      ResolutionPreset.medium,
+      _streamResolutionPreset,
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.yuv420,
     );
@@ -104,6 +106,7 @@ class CameraService {
     debugPrint(
       '[CameraService] ready: ${camera.name} '
       '(${camera.lensDirection}) '
+      'preset=$_streamResolutionPreset '
       'sensor=${camera.sensorOrientation} '
       'rotation=$rotationDegrees',
     );
@@ -324,8 +327,12 @@ class CameraService {
 extension CameraImageFrameMapper on CameraImage {
   CameraFrame toCameraFrame() {
     return CameraFrame(
-      planes: planes
-          .map((plane) => Uint8List.fromList(plane.bytes))
+      // Package planes into TransferableTypedData while the camera callback is
+      // still active. This preserves buffer lifetime correctness and removes an
+      // extra UI-isolate copy that used to happen later in runInference().
+      planes: const [],
+      transferablePlanes: planes
+          .map((plane) => TransferableTypedData.fromList([plane.bytes]))
           .toList(growable: false),
       rowStrides:
           planes.map((plane) => plane.bytesPerRow).toList(growable: false),

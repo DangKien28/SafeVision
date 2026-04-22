@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:safe_vision_app/core/constants/app_constants.dart';
 
 import 'package:safe_vision_app/features/detection/domain/entities/detection_object.dart';
 import 'package:safe_vision_app/features/detection/presentation/widgets/confidence_score_display.dart';
@@ -269,7 +270,9 @@ void main() {
       tracker.update([make(label: 'nguoi_di_bo')], now: start);
       final result = tracker.update(
         [],
-        now: start.add(const Duration(milliseconds: 450)),
+        now: start.add(
+          Duration(milliseconds: AppConstants.trackingMaxAgeMs + 50),
+        ),
       );
 
       expect(result, isEmpty);

@@ -13,6 +13,8 @@ class SmoothedBox {
   final String label;
   final int trackId;
   final int missedFrames;
+  final int consecutiveVisibleFrames;
+  final TrackedDetectionPhase phase;
 
   const SmoothedBox({
     required this.left,
@@ -22,6 +24,8 @@ class SmoothedBox {
     required this.label,
     required this.trackId,
     required this.missedFrames,
+    this.consecutiveVisibleFrames = 1,
+    this.phase = TrackedDetectionPhase.active,
   });
 
   factory SmoothedBox.fromTrackedDetection(TrackedDetection tracked) {
@@ -34,6 +38,8 @@ class SmoothedBox {
       label: tracked.detection.label,
       trackId: tracked.trackId,
       missedFrames: tracked.missedFrames,
+      consecutiveVisibleFrames: tracked.consecutiveVisibleFrames,
+      phase: tracked.phase,
     );
   }
 
@@ -46,11 +52,22 @@ class SmoothedBox {
       height == other.height &&
       label == other.label &&
       trackId == other.trackId &&
-      missedFrames == other.missedFrames;
+      missedFrames == other.missedFrames &&
+      consecutiveVisibleFrames == other.consecutiveVisibleFrames &&
+      phase == other.phase;
 
   @override
-  int get hashCode =>
-      Object.hash(left, top, width, height, label, trackId, missedFrames);
+  int get hashCode => Object.hash(
+        left,
+        top,
+        width,
+        height,
+        label,
+        trackId,
+        missedFrames,
+        consecutiveVisibleFrames,
+        phase,
+      );
 }
 
 /// Internal state for a track, storing the smoothed position and the
@@ -211,12 +228,12 @@ class BoundingBoxPainter extends CustomPainter {
   /// Each frame gets its own small set of Paint objects, which is safer.
   final Paint _strokePaint = Paint()
     ..style = PaintingStyle.stroke
-    ..strokeWidth = 2.0;
+    ..strokeWidth = 2.8; // FIX RC-8: was 2.0 – too thin on real device screens
 
   final Paint _cornerPaint = Paint()
     ..style = PaintingStyle.stroke
     ..strokeCap = StrokeCap.round
-    ..strokeWidth = 3.0;
+    ..strokeWidth = 4.0; // FIX RC-8: was 3.0 – thicker corners for visibility
 
   final Paint _labelPaint = Paint()..style = PaintingStyle.fill;
 
@@ -290,19 +307,21 @@ class BoundingBoxPainter extends CustomPainter {
 
     final rect = Rect.fromLTRB(l, t, r, b);
     final color = _colorForLabel(box.label);
+    final appearance = _appearanceFor(box);
 
-    // Reduce opacity as missed frames increase to create a fade-out effect.
-    final opacity = box.missedFrames == 0
-        ? 1.0
-        : (1.0 - box.missedFrames / 4.0).clamp(0.2, 1.0);
-
-    _strokePaint.color = color.withValues(alpha: 0.85 * opacity);
-    _cornerPaint.color = color.withValues(alpha: opacity);
-    _labelPaint.color = color.withValues(alpha: 0.9);
+    _strokePaint
+      ..color = color.withValues(alpha: 0.85 * appearance.opacity)
+      ..strokeWidth = appearance.strokeWidth;
+    _cornerPaint
+      ..color = color.withValues(alpha: appearance.opacity)
+      ..strokeWidth = appearance.cornerStrokeWidth;
+    _labelPaint.color = color.withValues(alpha: 0.9 * appearance.opacity);
 
     canvas.drawRect(rect, _strokePaint);
     _drawCorners(canvas, rect, _cornerPaint);
-    _drawLabel(canvas, size, rect, box.label, _labelPaint);
+    if (box.phase != TrackedDetectionPhase.tentative) {
+      _drawLabel(canvas, size, rect, box.label, _labelPaint);
+    }
   }
 
   /// Draws emphasized corners to keep the box visible on busy backgrounds.
@@ -366,8 +385,17 @@ class BoundingBoxPainter extends CustomPainter {
         text: label,
         style: const TextStyle(
           color: Colors.white,
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
+          // FIX RC-8: Increased from 12 → 15 for readability on real devices.
+          // Added shadow so text remains legible on any background color.
+          fontSize: 15,
+          fontWeight: FontWeight.w800,
+          shadows: [
+            Shadow(
+              color: Color(0xCC000000),
+              blurRadius: 4,
+              offset: Offset(1, 1),
+            ),
+          ],
         ),
       ),
       textDirection: TextDirection.ltr,
@@ -390,4 +418,42 @@ class BoundingBoxPainter extends CustomPainter {
     ];
     return palette[label.hashCode.abs() % palette.length];
   }
+
+  _BoxAppearance _appearanceFor(SmoothedBox box) {
+    switch (box.phase) {
+      case TrackedDetectionPhase.tentative:
+        return const _BoxAppearance(
+          opacity: AppConstants.trackingTentativeOpacity,
+          strokeWidth: 1.6,
+          cornerStrokeWidth: 2.2,
+        );
+      case TrackedDetectionPhase.fading:
+        final opacity = (1.0 - box.missedFrames / 4.0)
+            .clamp(AppConstants.trackingFadingOpacityFloor, 0.72)
+            .toDouble();
+        return _BoxAppearance(
+          opacity: opacity,
+          strokeWidth: 2.1,
+          cornerStrokeWidth: 3.0,
+        );
+      case TrackedDetectionPhase.active:
+        return const _BoxAppearance(
+          opacity: 1.0,
+          strokeWidth: 2.6,
+          cornerStrokeWidth: 3.4,
+        );
+    }
+  }
+}
+
+class _BoxAppearance {
+  const _BoxAppearance({
+    required this.opacity,
+    required this.strokeWidth,
+    required this.cornerStrokeWidth,
+  });
+
+  final double opacity;
+  final double strokeWidth;
+  final double cornerStrokeWidth;
 }

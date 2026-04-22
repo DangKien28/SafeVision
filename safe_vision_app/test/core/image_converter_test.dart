@@ -10,10 +10,10 @@ void main() {
 
   group('LetterboxResult', () {
     test('stores all data fields', () {
-      final tensor = Float32List(640 * 640 * 3);
+      final tensor = Float32List(320 * 320 * 3);
       final result = LetterboxResult(
         inputTensor: tensor,
-        scale: 2.0,
+        scale: 1.0,
         padLeft: 0.0625,
         padTop: 0.0,
         origWidth: 240,
@@ -21,7 +21,7 @@ void main() {
       );
 
       expect(result.inputTensor, same(tensor));
-      expect(result.scale, 2.0);
+      expect(result.scale, 1.0);
       expect(result.padLeft, 0.0625);
       expect(result.padTop, 0.0);
       expect(result.origWidth, 240);
@@ -32,7 +32,7 @@ void main() {
   // letterboxAndNormalize
 
   group('ImageConverter.letterboxAndNormalize', () {
-    const inputSize = 640;
+    const inputSize = 320;
 
     img.Image makeImage(int w, int h, {int r = 128, int g = 64, int b = 32}) {
       final image = img.Image(width: w, height: h);
@@ -44,8 +44,8 @@ void main() {
       final image = makeImage(240, 320);
       final result = ImageConverter.letterboxAndNormalize(image, inputSize);
 
-      // Longest side = 320, so scale = 640/320 = 2.0.
-      expect(result.scale, closeTo(2.0, 0.001));
+      // Longest side = 320, so scale = 320/320 = 1.0.
+      expect(result.scale, closeTo(1.0, 0.001));
       expect(result.origWidth, 240);
       expect(result.origHeight, 320);
       // The shorter side (width) is padded horizontally.
@@ -57,7 +57,7 @@ void main() {
       final image = makeImage(320, 240);
       final result = ImageConverter.letterboxAndNormalize(image, inputSize);
 
-      expect(result.scale, closeTo(2.0, 0.001));
+      expect(result.scale, closeTo(1.0, 0.001));
       expect(result.padLeft, closeTo(0.0, 0.002));
       // The shorter side (height) is padded vertically.
       expect(result.padTop, closeTo(0.125, 0.002));
@@ -67,13 +67,13 @@ void main() {
       final image = makeImage(320, 320);
       final result = ImageConverter.letterboxAndNormalize(image, inputSize);
 
-      expect(result.scale, closeTo(2.0, 0.001));
+      expect(result.scale, closeTo(1.0, 0.001));
       expect(result.padLeft, closeTo(0.0, 0.002));
       expect(result.padTop, closeTo(0.0, 0.002));
     });
 
     test('image already inputSize - scale=1.0 and no padding', () {
-      final image = makeImage(640, 640);
+      final image = makeImage(320, 320);
       final result = ImageConverter.letterboxAndNormalize(image, inputSize);
 
       expect(result.scale, closeTo(1.0, 0.001));
@@ -112,10 +112,10 @@ void main() {
   // unLetterboxBox
 
   group('ImageConverter.unLetterboxBox', () {
-    const inputSize = 640;
+    const inputSize = 320;
 
     test('centered bounding box is mapped to center of original image', () {
-      // Setup: portrait image 240x320, scale = 2.0, padLeft = 0.125.
+      // Setup: portrait image 240x320, scale = 1.0, padLeft = 0.125.
       // The box is centered in model output space.
       final box = ImageConverter.unLetterboxBox(
         cx: 0.5,
@@ -125,7 +125,7 @@ void main() {
         coordinatesAreNormalized: true,
         padLeft: 0.125,
         padTop: 0.0,
-        scale: 2.0,
+        scale: 1.0,
         origWidth: 240,
         origHeight: 320,
         inputSize: inputSize,
@@ -146,7 +146,7 @@ void main() {
         coordinatesAreNormalized: true,
         padLeft: 0.125,
         padTop: 0.0,
-        scale: 2.0,
+        scale: 1.0,
         origWidth: 240,
         origHeight: 320,
         inputSize: inputSize,
@@ -167,7 +167,7 @@ void main() {
         coordinatesAreNormalized: true,
         padLeft: 0.0,
         padTop: 0.0,
-        scale: 2.0,
+        scale: 1.0,
         origWidth: 320,
         origHeight: 320,
         inputSize: inputSize,
@@ -266,7 +266,7 @@ void main() {
   group('Letterbox to unLetterbox round-trip consistency', () {
     test('coordinates after unLetterbox from letterbox result remain in [0, 1]',
         () {
-      const inputSize = 640;
+      const inputSize = 320;
 
       final image = img.Image(width: 240, height: 320);
       img.fill(image, color: img.ColorRgb8(100, 150, 200));

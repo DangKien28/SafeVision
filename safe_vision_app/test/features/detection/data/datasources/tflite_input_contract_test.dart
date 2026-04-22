@@ -8,7 +8,7 @@ import 'package:safe_vision_app/core/utils/image_converter.dart';
 void main() {
   group('TFLite input contract', () {
     test('Float32List is inferred as rank-1 by tflite_flutter', () {
-      final input = Float32List(640 * 640 * 3);
+      final input = Float32List(320 * 320 * 3);
 
       expect(Tensor.computeShapeOf(input), [input.length]);
     });

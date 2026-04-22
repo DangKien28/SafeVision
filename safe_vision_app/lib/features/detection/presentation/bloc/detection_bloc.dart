@@ -4,13 +4,13 @@ import 'package:bloc_concurrency/bloc_concurrency.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../../core/constants/app_constants.dart';
 import '../../../../core/error/exceptions.dart';
 import '../../../../core/services/warning_dispatcher.dart';
 import '../../../../core/usecases/usecase.dart';
 import '../../../../core/utils/perf_monitor.dart';
 import '../../domain/entities/tracked_detection.dart';
 import '../../domain/services/object_tracker.dart';
+import '../../domain/services/warning_policy.dart';
 import '../../domain/usecases/close_model_usecase.dart';
 import '../../domain/usecases/detection_object_from_frame.dart';
 import '../../domain/usecases/load_model_usecase.dart';
@@ -29,13 +29,13 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
   final DetectionObjectFromFrame _detectFromFrame;
   final DetectionWarningCallback _onWarning;
   final ObjectTracker _objectTracker;
+  final WarningPolicy _warningPolicy;
 
   Future<void>? _closeFuture;
   Future<void> _lifecycleChain = Future<void>.value();
   bool _modelReady = false;
   bool _isShuttingDown = false;
   int _pipelineGeneration = 0;
-  final Map<int, _WarningRecord> _warningRecords = <int, _WarningRecord>{};
 
   DetectionBloc({
     required LoadModelUsecase loadModel,
@@ -44,12 +44,14 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
     DetectionWarningCallback? onWarning,
     WarningDispatcher? warningDispatcher,
     ObjectTracker? objectTracker,
+    WarningPolicy? warningPolicy,
   })  : _loadModel = loadModel,
         _closeModel = closeModel,
         _detectFromFrame = detectFromFrame,
         _onWarning =
             onWarning ?? _warningCallbackFromDispatcher(warningDispatcher),
         _objectTracker = objectTracker ?? ObjectTracker(),
+        _warningPolicy = warningPolicy ?? WarningPolicy(),
         super(const DetectionInitial()) {
     on<DetectionStarted>(_onStarted);
     on<DetectionStopped>(_onStopped);
@@ -206,38 +208,18 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
   }
 
   void _triggerWarningIfNeeded(List<TrackedDetection> trackedDetections) {
-    final trackIds =
-        trackedDetections.map((tracked) => tracked.trackId).toSet();
-    _warningRecords.removeWhere((trackId, _) => !trackIds.contains(trackId));
+    final action = _warningPolicy.evaluate(trackedDetections);
+    if (action == null) return;
 
-    final visible = trackedDetections.where((t) => t.isVisible).toList();
-    if (visible.isEmpty) return;
-
-    final now = DateTime.now();
-    final dangerous = visible.where((t) => t.detection.isDangerous).toList();
-    if (dangerous.isNotEmpty) {
-      final top = dangerous.reduce((a, b) =>
-          a.detection.boundingBox.area > b.detection.boundingBox.area ? a : b);
-      if (!_shouldWarn(top, now, immediate: true)) return;
-      _onWarning(
-        text: top.detection.voiceWarning,
-        immediate: true,
-        withVibration: true,
-      );
-    } else {
-      final top = visible.reduce(
-          (a, b) => a.detection.confidence > b.detection.confidence ? a : b);
-      if (!_shouldWarn(top, now, immediate: false)) return;
-      _onWarning(
-        text: top.detection.voiceWarning,
-        immediate: false,
-        withVibration: false,
-      );
-    }
+    _onWarning(
+      text: action.text,
+      immediate: action.immediate,
+      withVibration: action.withVibration,
+    );
   }
 
   void _resetWarningState() {
-    _warningRecords.clear();
+    _warningPolicy.reset();
   }
 
   bool get _canProcessFrames =>
@@ -254,42 +236,6 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
       }
     });
     return completer.future;
-  }
-
-  bool _shouldWarn(
-    TrackedDetection trackedDetection,
-    DateTime now, {
-    required bool immediate,
-  }) {
-    if (!immediate &&
-        trackedDetection.consecutiveVisibleFrames <
-            AppConstants.warningStableVisibleFrames) {
-      return false;
-    }
-
-    final previous = _warningRecords[trackedDetection.trackId];
-    final minGapMs = immediate
-        ? AppConstants.dangerWarningRepeatMs
-        : AppConstants.warningRepeatMs;
-
-    if (immediate && previous != null && !previous.immediate) {
-      _warningRecords[trackedDetection.trackId] = _WarningRecord(
-        sentAt: now,
-        immediate: true,
-      );
-      return true;
-    }
-
-    if (previous != null &&
-        now.difference(previous.sentAt).inMilliseconds < minGapMs) {
-      return false;
-    }
-
-    _warningRecords[trackedDetection.trackId] = _WarningRecord(
-      sentAt: now,
-      immediate: immediate,
-    );
-    return true;
   }
 
   @override
@@ -313,14 +259,4 @@ class DetectionBloc extends Bloc<DetectionEvent, DetectionState> {
     _modelReady = false;
     return super.close();
   }
-}
-
-class _WarningRecord {
-  const _WarningRecord({
-    required this.sentAt,
-    required this.immediate,
-  });
-
-  final DateTime sentAt;
-  final bool immediate;
 }

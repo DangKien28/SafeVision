@@ -35,11 +35,14 @@ class BoundingBox extends Equatable {
   }
 
   /// Distance label derived from the bounding-box area.
-  /// Thresholds were chosen empirically for a typical phone camera.
+  /// Thresholds were calibrated for a typical phone camera held at arm's length.
+  /// Lower than the original values because a model trained on limited data
+  /// often detects only a partial bounding box even for close objects,
+  /// making the raw area smaller than the true occupied area.
   String get proximityLabel {
-    if (area > 0.25) return 'rất gần';
-    if (area > 0.10) return 'gần';
-    if (area > 0.03) return 'khoảng cách trung bình';
+    if (area > 0.18) return 'rất gần';           // was 0.25
+    if (area > 0.06) return 'gần';               // was 0.10
+    if (area > 0.02) return 'khoảng cách trung bình'; // was 0.03
     return 'xa';
   }
 
