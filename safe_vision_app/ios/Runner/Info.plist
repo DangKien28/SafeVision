@@ -45,6 +45,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>SafeVision cần quyền camera để nhận diện vật thể và hỗ trợ cảnh báo cho người dùng.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>SafeVision cần quyền micro để người dùng đọc tên đồ vật cần tìm.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 </dict>

@@ -28,6 +28,52 @@ class VoiceHelper {
     'xe': 'xe',
   };
 
+  static const Map<String, String> _aliasToCanonical = {
+    'ban': 'table',
+    'bàn': 'table',
+    'table': 'table',
+    'ghe': 'chair',
+    'ghế': 'chair',
+    'chair': 'chair',
+    'cau thang': 'stairs',
+    'cầu thang': 'stairs',
+    'stair': 'stairs',
+    'stairs': 'stairs',
+    'xe dap': 'bicycle',
+    'xe đạp': 'bicycle',
+    'bicycle': 'bicycle',
+    'xe may': 'motorbike',
+    'xe máy': 'motorbike',
+    'motorbike': 'motorbike',
+    'motorcycle': 'motorbike',
+    'xe hoi': 'car',
+    'xe hơi': 'car',
+    'car': 'car',
+    'xe buyt': 'bus',
+    'xe buýt': 'bus',
+    'bus': 'bus',
+    'xe tai': 'truck',
+    'xe tải': 'truck',
+    'truck': 'truck',
+    'cho': 'dog',
+    'chó': 'dog',
+    'dog': 'dog',
+    'meo': 'cat',
+    'mèo': 'cat',
+    'cat': 'cat',
+    'nguoi di bo': 'person',
+    'người đi bộ': 'person',
+    'person': 'person',
+    'pedestrian': 'person',
+    'dien thoai': 'phone',
+    'điện thoại': 'phone',
+    'phone': 'phone',
+    'cay': 'tree',
+    'cây': 'tree',
+    'tree': 'tree',
+    'xe': 'vehicle',
+  };
+
   /// Full warning sentence including object name, horizontal position,
   /// and estimated distance. The phrasing is tuned for natural playback
   /// by the Vietnamese TTS engine.
@@ -48,6 +94,14 @@ class VoiceHelper {
     }
 
     return trimmed.replaceAll('_', ' ');
+  }
+
+  /// Canonical key used to compare model labels and spoken object names.
+  /// Returns `null` when input is empty after trimming.
+  static String? canonicalLabelKey(String raw) {
+    final cleaned = raw.trim().toLowerCase().replaceAll('_', ' ');
+    if (cleaned.isEmpty) return null;
+    return _aliasToCanonical[cleaned] ?? cleaned;
   }
 
   static String modelLoaded() => 'Hệ thống sẵn sàng';

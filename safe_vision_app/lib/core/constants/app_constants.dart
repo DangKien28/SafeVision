@@ -9,7 +9,7 @@ class AppConstants {
   static const int maxDetections = 10;
 
   static const int inputSize = 640;
-  static const int activeInferenceFps = 6;
+  static const int activeInferenceFps = 16;
   static const int inferenceThreads = 4;
 
   static const int inferenceTimeoutMs = 5000;

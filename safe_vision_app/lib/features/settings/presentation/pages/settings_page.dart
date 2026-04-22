@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../../injection_container.dart';
 import '../bloc/settings_bloc.dart';
 import '../bloc/settings_event.dart';
 import '../bloc/settings_state.dart';
-import '../../../tts/presentation/bloc/tts_bloc.dart';
 
 /// Settings page for SafeVision.
 ///
@@ -19,16 +17,7 @@ class SettingsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MultiBlocProvider(
-      providers: [
-        BlocProvider<SettingsBloc>(
-          create: (_) =>
-              SettingsBloc(sl(), sl(), sl(), sl())..add(const SettingsLoaded()),
-        ),
-        BlocProvider<TtsBloc>(create: (_) => sl<TtsBloc>()),
-      ],
-      child: const _SettingsView(),
-    );
+    return const _SettingsView();
   }
 }
 

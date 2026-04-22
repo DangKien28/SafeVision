@@ -23,6 +23,7 @@ dependencies:
 
   # Text-to-speech
   flutter_tts: ^4.2.2
+  speech_to_text: ^7.0.0
 
   # Haptic feedback
   vibration: ^2.0.1

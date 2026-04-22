@@ -22,7 +22,19 @@ import 'features/tts/presentation/bloc/tts_bloc.dart';
 import 'features/settings/data/datasources/local_storage_service.dart';
 import 'features/settings/data/repositories/settings_repository_impl.dart';
 import 'features/settings/domain/repositories/settings_repository.dart';
+import 'features/settings/domain/usecases/load_settings_usecase.dart';
+import 'features/settings/domain/usecases/set_basic_display_mode_usecase.dart';
+import 'features/settings/domain/usecases/set_confidence_panel_usecase.dart';
+import 'features/settings/domain/usecases/set_confidence_threshold_usecase.dart';
+import 'features/settings/domain/usecases/set_speech_rate_usecase.dart';
+import 'features/settings/domain/usecases/set_tts_language_usecase.dart';
+import 'features/settings/domain/usecases/set_voice_enabled_usecase.dart';
 import 'features/settings/presentation/bloc/settings_bloc.dart';
+import 'features/voice_command/data/datasources/voice_command_datasource.dart';
+import 'features/voice_command/data/datasources/voice_command_datasource_impl.dart';
+import 'features/voice_command/data/repositories/voice_command_repository_impl.dart';
+import 'features/voice_command/domain/repositories/voice_command_repository.dart';
+import 'features/voice_command/domain/usecases/listen_target_object_usecase.dart';
 
 final sl = GetIt.instance;
 
@@ -42,6 +54,14 @@ Future<void> init() async {
   sl.registerSingleton<SettingsRepository>(
     SettingsRepositoryImpl(sl<LocalStorageService>()),
   );
+  sl.registerSingleton(LoadSettingsUsecase(sl<SettingsRepository>()));
+  sl.registerSingleton(SetSpeechRateUsecase(sl<SettingsRepository>()));
+  sl.registerSingleton(
+      SetConfidenceThresholdUsecase(sl<SettingsRepository>()));
+  sl.registerSingleton(SetVoiceEnabledUsecase(sl<SettingsRepository>()));
+  sl.registerSingleton(SetConfidencePanelUsecase(sl<SettingsRepository>()));
+  sl.registerSingleton(SetBasicDisplayModeUsecase(sl<SettingsRepository>()));
+  sl.registerSingleton(SetTtsLanguageUsecase(sl<SettingsRepository>()));
 
   // TTS
   // TtsService must be initialized before use. An eager singleton keeps
@@ -94,11 +114,24 @@ Future<void> init() async {
         },
       ));
 
+  // Voice command
+  sl.registerSingleton<VoiceCommandDatasource>(VoiceCommandDatasourceImpl());
+  sl.registerSingleton<VoiceCommandRepository>(
+    VoiceCommandRepositoryImpl(sl<VoiceCommandDatasource>()),
+  );
+  sl.registerSingleton(ListenTargetObjectUsecase(sl<VoiceCommandRepository>()));
+
   // Camera
   sl.registerSingleton(CameraService());
 
   sl.registerLazySingleton<SettingsBloc>(() => SettingsBloc(
-        sl<SettingsRepository>(),
+      sl<LoadSettingsUsecase>(),
+      sl<SetSpeechRateUsecase>(),
+      sl<SetConfidenceThresholdUsecase>(),
+      sl<SetVoiceEnabledUsecase>(),
+      sl<SetConfidencePanelUsecase>(),
+      sl<SetBasicDisplayModeUsecase>(),
+      sl<SetTtsLanguageUsecase>(),
         sl<ConfigureTtsUsecase>(),
         sl<StopSpeakingUsecase>(),
         sl<DetectionConfig>(),
