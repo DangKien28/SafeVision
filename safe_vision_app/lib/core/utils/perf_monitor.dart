@@ -4,8 +4,11 @@ import 'package:flutter/foundation.dart';
 ///
 /// The monitor tracks:
 /// - dispatched frames: frames actually sent to inference
-/// - latest-frame refreshes: pending-frame replacements while inference is busy
-/// - dropped frames: frames discarded before copying/processing
+/// - latest-frame queue/refresh operations while inference is busy
+/// - busy skips: frames intentionally ignored because a fresher pending frame
+///   is already waiting
+/// - dropped frames: stale frames that expired before they could be processed
+/// - throttled frames: frames skipped by any explicit FPS limiter
 /// - inference latency
 /// - completed detection FPS
 class PerfMonitor {
@@ -15,8 +18,11 @@ class PerfMonitor {
   static final List<int> _completionTimes = <int>[];
   static final List<int> _inferenceTimes = <int>[];
 
+  static int _latestFrameQueued = 0;
   static int _latestFrameRefreshes = 0;
+  static int _busySkippedFrames = 0;
   static int _droppedFrames = 0;
+  static int _throttledFrames = 0;
   static DateTime? _lastReport;
 
   static void frameDispatched() {
@@ -28,7 +34,22 @@ class PerfMonitor {
 
   static void latestFrameQueued() {
     if (!kDebugMode) return;
+    _latestFrameQueued++;
+  }
+
+  static void latestFrameRefreshed() {
+    if (!kDebugMode) return;
     _latestFrameRefreshes++;
+  }
+
+  static void frameSkippedWhileBusy() {
+    if (!kDebugMode) return;
+    _busySkippedFrames++;
+  }
+
+  static void frameThrottled() {
+    if (!kDebugMode) return;
+    _throttledFrames++;
   }
 
   static void frameDropped() {
@@ -65,7 +86,10 @@ class PerfMonitor {
       '[PerfMonitor] dispatch≈$dispatchFps fps | '
       'detections≈$detectionFps fps | '
       'inference≈${avgInference}ms | '
-      'latest=$_latestFrameRefreshes | '
+      'queued=$_latestFrameQueued | '
+      'refreshed=$_latestFrameRefreshes | '
+      'busySkip=$_busySkippedFrames | '
+      'throttled=$_throttledFrames | '
       'dropped=$_droppedFrames',
     );
   }
@@ -84,8 +108,11 @@ class PerfMonitor {
     _dispatchTimes.clear();
     _completionTimes.clear();
     _inferenceTimes.clear();
+    _latestFrameQueued = 0;
     _latestFrameRefreshes = 0;
+    _busySkippedFrames = 0;
     _droppedFrames = 0;
+    _throttledFrames = 0;
     _lastReport = null;
   }
 }

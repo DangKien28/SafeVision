@@ -32,6 +32,7 @@ class _CameraViewPageState extends State<CameraViewPage>
   final CameraService _cameraService = sl<CameraService>();
 
   bool _cameraReady = false;
+  bool _streamActive = false;
   int _cameraSession = 0;
   int _boxVersion = 0;
 
@@ -74,14 +75,14 @@ class _CameraViewPageState extends State<CameraViewPage>
       case AppLifecycleState.hidden:
         if (_phase == _LifecyclePhase.active) {
           _phase = _LifecyclePhase.paused;
-          unawaited(_cameraService.stopImageStream());
+          unawaited(_stopStreaming());
         }
         break;
       case AppLifecycleState.resumed:
         if (_phase == _LifecyclePhase.paused) {
           _phase = _LifecyclePhase.active;
           if (_cameraService.isInitialized) {
-            _startStreaming();
+            _ensureStreaming();
           } else {
             _startCamera();
           }
@@ -98,7 +99,7 @@ class _CameraViewPageState extends State<CameraViewPage>
       await _cameraService.initialize();
       if (!mounted || _phase == _LifecyclePhase.disposed) return;
       setState(() => _cameraReady = true);
-      _startStreaming();
+      _ensureStreaming();
     } on PermissionException catch (e) {
       if (!mounted || _phase == _LifecyclePhase.disposed) return;
       _showPermissionDialog(e.message);
@@ -109,8 +110,11 @@ class _CameraViewPageState extends State<CameraViewPage>
 
   void _startStreaming() {
     if (_phase == _LifecyclePhase.disposed) return;
+    if (_streamActive || !_cameraReady) return;
+    if (!_canProcessFrames(context.read<DetectionBloc>().state)) return;
 
     final int session = _cameraSession;
+    _streamActive = true;
     // v4: callback receives CameraFrame (bytes already copied, buffer released).
     _cameraService.startImageStream(
       onFrame: (CameraFrame frame, void Function() onDone) {
@@ -131,8 +135,19 @@ class _CameraViewPageState extends State<CameraViewPage>
     );
   }
 
-  Future<void> _switchCamera() async {
+  void _ensureStreaming() {
+    if (_phase != _LifecyclePhase.active || !_cameraReady) return;
+    _startStreaming();
+  }
+
+  Future<void> _stopStreaming() async {
+    if (!_streamActive && !_cameraService.isStreaming) return;
+    _streamActive = false;
     await _cameraService.stopImageStream();
+  }
+
+  Future<void> _switchCamera() async {
+    await _stopStreaming();
     if (!mounted || _phase == _LifecyclePhase.disposed) return;
 
     _cameraSession++;
@@ -144,7 +159,7 @@ class _CameraViewPageState extends State<CameraViewPage>
       await _cameraService.switchCamera();
       if (!mounted || _phase == _LifecyclePhase.disposed) return;
       setState(() => _cameraReady = true);
-      _startStreaming();
+      _ensureStreaming();
     } catch (e) {
       debugPrint('[Page] switchCamera error: $e');
       if (!mounted || _phase == _LifecyclePhase.disposed) return;
@@ -192,6 +207,19 @@ class _CameraViewPageState extends State<CameraViewPage>
           ),
           MultiBlocListener(
             listeners: [
+              BlocListener<DetectionBloc, DetectionState>(
+                listenWhen: (prev, curr) =>
+                    _canProcessFrames(prev) != _canProcessFrames(curr) ||
+                    curr is DetectionFailure,
+                listener: (_, state) {
+                  if (_phase == _LifecyclePhase.disposed) return;
+                  if (_canProcessFrames(state)) {
+                    _ensureStreaming();
+                  } else {
+                    unawaited(_stopStreaming());
+                  }
+                },
+              ),
               BlocListener<DetectionBloc, DetectionState>(
                 listenWhen: (_, curr) =>
                     curr is DetectionSuccess ||
@@ -300,6 +328,9 @@ class _CameraViewPageState extends State<CameraViewPage>
     _detectionsNotifierDisposed = true;
     _detectionsNotifier.dispose();
   }
+
+  bool _canProcessFrames(DetectionState state) =>
+      state is DetectionModelReady || state is DetectionSuccess;
 }
 
 enum _LifecyclePhase { active, paused, disposed }

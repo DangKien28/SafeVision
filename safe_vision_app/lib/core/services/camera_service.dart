@@ -18,9 +18,6 @@ class CameraService {
   int _currentIndex = 0;
   int _baseRotationDegrees = 0;
 
-  int _throttleCount = 0;
-
-  DateTime _lastFrameTime = DateTime.now();
   DateTime? _pendingFrameTime;
 
   CameraFrame? _pendingFrame;
@@ -31,8 +28,6 @@ class CameraService {
   int _streamGeneration = 0;
 
   void Function(CameraFrame frame, void Function() onDone)? _onFrameCallback;
-
-  static const int _minFrameMs = 1000 ~/ AppConstants.activeInferenceFps;
 
   CameraController? get controller => _controller;
   bool get isInitialized => _controller?.value.isInitialized ?? false;
@@ -151,8 +146,6 @@ class CameraService {
       return;
     }
 
-    _lastFrameTime = DateTime.now();
-    _throttleCount = 0;
     _resetStreamState();
     _onFrameCallback = onFrame;
     PerfMonitor.reset();
@@ -167,19 +160,18 @@ class CameraService {
       }
 
       final now = DateTime.now();
-      if (now.difference(_lastFrameTime).inMilliseconds < _minFrameMs) {
-        _throttleCount++;
-        PerfMonitor.frameDropped();
-        if (kDebugMode && _throttleCount % 120 == 0) {
-          debugPrint('[CameraService] throttled $_throttleCount frames');
-        }
-        return;
-      }
-      _lastFrameTime = now;
-
       if (_isProcessingFrame) {
         if (_pendingFrame != null) {
-          PerfMonitor.frameDropped();
+          final pendingAgeMs =
+              now.difference(_pendingFrameTime ?? now).inMilliseconds;
+          if (pendingAgeMs < AppConstants.busyFrameReplacementMinIntervalMs) {
+            PerfMonitor.frameSkippedWhileBusy();
+            return;
+          }
+
+          _pendingFrame = image.toCameraFrame();
+          _pendingFrameTime = now;
+          PerfMonitor.latestFrameRefreshed();
           return;
         }
 
@@ -194,9 +186,7 @@ class CameraService {
       debugPrint('[CameraService] startImageStream error: $error');
     }));
 
-    debugPrint(
-      '[CameraService] stream started (~${AppConstants.activeInferenceFps} fps)',
-    );
+    debugPrint('[CameraService] stream started (adaptive backpressure mode)');
   }
 
   void _dispatchFrame(CameraFrame frame, int generation) {

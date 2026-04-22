@@ -10,7 +10,9 @@ class AppConstants {
   static const int maxClassesPerBox = 2;
 
   static const int inputSize = 320;
-  static const int activeInferenceFps = 6;
+  // When inference is busy and one pending frame is already queued, only
+  // refresh that pending frame after this interval so the UI isolate does not
+  // spend all of its time copying camera buffers that will never be used.
   static const int busyFrameReplacementMinIntervalMs = 180;
   static const int inferenceThreads = 4;
 

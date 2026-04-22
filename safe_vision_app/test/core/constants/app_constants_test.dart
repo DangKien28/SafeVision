@@ -18,7 +18,6 @@ void main() {
 
     test('runtime tuning values are configured', () {
       expect(AppConstants.inputSize, 320);
-      expect(AppConstants.activeInferenceFps, 6);
       expect(AppConstants.busyFrameReplacementMinIntervalMs, 180);
       expect(AppConstants.inferenceThreads, 4);
       expect(AppConstants.inferenceTimeoutMs, 5000);
