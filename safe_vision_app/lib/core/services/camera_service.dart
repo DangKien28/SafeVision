@@ -16,12 +16,10 @@ class CameraService {
   int _currentIndex = 0;
   int _baseRotationDegrees = 0;
 
-  int _latestRefreshCount = 0;
   int _throttleCount = 0;
 
   DateTime _lastFrameTime = DateTime.now();
   DateTime? _pendingFrameTime;
-  DateTime? _pendingFrameUpdatedAt;
 
   CameraFrame? _pendingFrame;
   bool _isProcessingFrame = false;
@@ -96,7 +94,7 @@ class CameraService {
 
     final controller = CameraController(
       camera,
-      ResolutionPreset.low,
+      ResolutionPreset.medium,
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.yuv420,
     );
@@ -151,7 +149,6 @@ class CameraService {
     }
 
     _lastFrameTime = DateTime.now();
-    _latestRefreshCount = 0;
     _throttleCount = 0;
     _resetStreamState();
     _onFrameCallback = onFrame;
@@ -178,25 +175,14 @@ class CameraService {
       _lastFrameTime = now;
 
       if (_isProcessingFrame) {
-        final shouldRefreshPending = _pendingFrame == null ||
-            _pendingFrameUpdatedAt == null ||
-            now.difference(_pendingFrameUpdatedAt!).inMilliseconds >=
-                AppConstants.busyFrameReplacementMinIntervalMs;
-        if (!shouldRefreshPending) {
+        if (_pendingFrame != null) {
           PerfMonitor.frameDropped();
           return;
         }
 
         _pendingFrame = image.toCameraFrame();
         _pendingFrameTime = now;
-        _pendingFrameUpdatedAt = now;
-        _latestRefreshCount++;
         PerfMonitor.latestFrameQueued();
-
-        if (kDebugMode && _latestRefreshCount % 30 == 0) {
-          debugPrint('[CameraService] refreshed latest pending frame '
-              '$_latestRefreshCount times');
-        }
         return;
       }
 
@@ -216,7 +202,6 @@ class CameraService {
     _isProcessingFrame = true;
     _pendingFrame = null;
     _pendingFrameTime = null;
-    _pendingFrameUpdatedAt = null;
     PerfMonitor.frameDispatched();
 
     final onFrame = _onFrameCallback;
@@ -241,7 +226,6 @@ class CameraService {
         _onFrameCallback == null) {
       _pendingFrame = null;
       _pendingFrameTime = null;
-      _pendingFrameUpdatedAt = null;
       return;
     }
 
@@ -258,7 +242,6 @@ class CameraService {
       }
       _pendingFrame = null;
       _pendingFrameTime = null;
-      _pendingFrameUpdatedAt = null;
       PerfMonitor.frameDropped();
       return;
     }
@@ -334,7 +317,6 @@ class CameraService {
     _isProcessingFrame = false;
     _pendingFrame = null;
     _pendingFrameTime = null;
-    _pendingFrameUpdatedAt = null;
     _onFrameCallback = null;
   }
 }
